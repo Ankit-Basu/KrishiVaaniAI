@@ -45,7 +45,7 @@ Smart Farming Insights for Indian Farmers
 - Live weather forecasts (OpenWeatherMap)
 - Local mandi prices (MandiAPI/custom scraper)
 - Voice & text I/O
-- Retro pixel-art UI (Tailwind CSS, Press Start 2P)
+- Clean, mobile-first UI with a pixel-art hero (no build step, plain CSS)
 
 ## Getting Started
 
@@ -61,7 +61,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-### 3. Open `index.html` in your browser
+### 3. Open http://localhost:5000 in your browser
 
 ---
 
@@ -73,8 +73,7 @@ python app.py
 - Set your Gemini API key as an environment variable or in a `.env` file for `/api/chat`.
 
 ## Deployment
-- Frontend: Netlify (static)
-- Backend: Deploy Flask app as a service or serverless function.
+Free hosting steps (Hugging Face Spaces, plus optional Netlify/Vercel front-end) are in [DEPLOY.md](DEPLOY.md).
 
 ---
 

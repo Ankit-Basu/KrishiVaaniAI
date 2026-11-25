@@ -16,10 +16,19 @@ import base64
 
 # Load config.env
 from dotenv import load_dotenv
+load_dotenv('.env')
 load_dotenv('config.env')
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.5-flash')
+
+
+def gemini_url():
+    return f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+
+
 # Load class to index mapping
-with open('index_to_name.json', 'r') as f:
+with open(os.path.join(BASE_DIR, 'index_to_name.json'), 'r') as f:
     class_to_name = json.load(f)
     idx_to_class = {int(k): v for k, v in class_to_name.items()}
 
@@ -41,7 +50,7 @@ def load_model(model_path):
     return model
 
 # Load the model
-model = load_model('mobilenetv2_leaf_disease_final.pth')
+model = load_model(os.path.join(BASE_DIR, 'mobilenetv2_leaf_disease_final.pth'))
 
 # Image transformations
 preprocess = transforms.Compose([
@@ -69,21 +78,21 @@ def predict_image(image_bytes):
 
 # Simple remedy mapping (you can expand this with more detailed remedies)
 REMEDY_MAP = {
-    'Apple___Apple_scab': 'Apply fungicides and practice good sanitation by removing infected leaves.',
-    'Apple___Black_rot': 'Prune infected branches and apply appropriate fungicides.',
-    'Apple___Cedar_apple_rust': 'Remove nearby cedar trees if possible and apply fungicides.',
-    'Apple___healthy': 'Your plant looks healthy! Maintain good growing conditions.',
-    'Cherry___Powdery_mildew': 'Apply sulfur or potassium bicarbonate-based fungicides.',
-    'Corn___Cercospora_leaf_spot Gray_leaf_spot': 'Use resistant varieties and apply appropriate fungicides.',
-    'Corn___Common_rust': 'Plant resistant varieties and apply fungicides if necessary.',
-    'Corn___Northern_Leaf_Blight': 'Rotate crops and use resistant varieties.',
-    'Grape___Black_rot': 'Apply fungicides and remove infected plant material.',
-    'Grape___Esca_(Black_Measles)': 'Prune infected vines and apply appropriate treatments.',
-    'Grape___Leaf_blight_(Isariopsis_Leaf_Spot)': 'Apply fungicides and improve air circulation.',
-    'Grape___healthy': 'Your grape plant looks healthy! Maintain good growing conditions.',
-    'Potato___Early_blight': 'Rotate crops and apply fungicides preventatively.',
-    'Potato___Late_blight': 'Remove and destroy infected plants, apply fungicides.',
-    'Potato___healthy': 'Your potato plant looks healthy! Maintain good growing conditions.'
+    'Pepper__bell___Bacterial_spot': 'Remove spotted leaves, avoid overhead watering, and spray a copper-based bactericide every 7-10 days. Use certified disease-free seed next season.',
+    'Pepper__bell___healthy': 'Your pepper plant looks healthy. Keep watering at the base and check the underside of leaves weekly.',
+    'Potato___Early_blight': 'Remove lower infected leaves and spray mancozeb or chlorothalonil every 7-10 days. Rotate with non-solanaceous crops next season.',
+    'Potato___Late_blight': 'Act fast: remove and destroy infected plants, then spray metalaxyl + mancozeb. Avoid irrigation late in the day.',
+    'Potato___healthy': 'Your potato plant looks healthy. Keep earthing up and watch for dark leaf patches after cool, wet weather.',
+    'Tomato_Bacterial_spot': 'Remove infected leaves, avoid working in the field when plants are wet, and spray copper oxychloride with streptocycline.',
+    'Tomato_Early_blight': 'Prune lower leaves touching the soil, mulch, and spray mancozeb or chlorothalonil every 7-10 days.',
+    'Tomato_Late_blight': 'Remove infected plants immediately and spray metalaxyl + mancozeb. Improve spacing for airflow.',
+    'Tomato_Leaf_Mold': 'Improve ventilation, reduce humidity, remove affected leaves, and spray a copper fungicide or chlorothalonil.',
+    'Tomato_Septoria_leaf_spot': 'Remove spotted lower leaves, mulch to stop soil splash, and spray mancozeb or chlorothalonil.',
+    'Tomato_Spider_mites_Two_spotted_spider_mite': 'Spray water on leaf undersides, then neem oil (3-5 ml per litre) or a miticide such as abamectin if severe.',
+    'Tomato__Target_Spot': 'Remove infected leaves, improve airflow, and spray azoxystrobin or chlorothalonil.',
+    'Tomato__Tomato_YellowLeaf__Curl_Virus': 'There is no cure: uproot infected plants, control whiteflies with yellow sticky traps and neem oil or imidacloprid, and use resistant varieties.',
+    'Tomato__Tomato_mosaic_virus': 'Uproot infected plants, wash hands and tools with soap, avoid tobacco near plants, and use resistant seed.',
+    'Tomato_healthy': 'Your tomato plant looks healthy. Stake the plant, water at the base, and inspect leaves weekly.',
 }
 
 def get_remedy(disease_name):
@@ -96,7 +105,7 @@ def translate_text(text, target_lang):
         return text
     prompt = f"Translate the following agricultural advice into {target_lang}. Keep scientific names or pesticide ingredient names untranslated.\n\n{text}"
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+        url = gemini_url()
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
         resp = requests.post(url, json=payload, timeout=15)
         resp.raise_for_status()
@@ -114,10 +123,10 @@ def generate_remedy_gemini(disease_name, lang='en'):
     Disease: {disease_name}
     """
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+        url = gemini_url()
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.6, "maxOutputTokens": 60}
+            "generationConfig": {"temperature": 0.6, "maxOutputTokens": 200}
         }
         resp = requests.post(url, json=payload, timeout=15)
         resp.raise_for_status()
@@ -127,80 +136,48 @@ def generate_remedy_gemini(disease_name, lang='en'):
     except Exception:
         return "Consult a local agricultural expert for specific treatment options."
 
-app = Flask(__name__, static_folder='static', static_url_path='')
+app = Flask(__name__, static_folder=os.path.join(BASE_DIR, 'static'), static_url_path='/static')
 CORS(app)
-app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
-
-# Ensure static directory exists
-os.makedirs('static/images', exist_ok=True)
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 3600
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
 MANDI_API_KEY = os.getenv('MANDI_API_KEY')
 
+
 # Serve index.html for root and /index.html
 @app.route('/')
 @app.route('/index.html')
 def serve_index():
-    return send_file('index.html')
+    return send_file(os.path.join(BASE_DIR, 'index.html'))
 
-# Serve static files (JS, images, etc.)
-@app.route('/static/<path:filename>')
-def serve_static(filename):
-    try:
-        # Handle URL-encoded filenames
-        import urllib.parse
-        import os
-        
-        # Decode the filename if it's URL-encoded
-        decoded_filename = urllib.parse.unquote(filename)
-        
-        # Log the request for debugging
-        print(f"Serving static file: {decoded_filename}")
-        
-        # Check if file exists before sending
-        static_dir = os.path.join(app.root_path, 'static')
-        file_path = os.path.join(static_dir, *decoded_filename.split('/'))
-        
-        if not os.path.isfile(file_path):
-            print(f"File not found: {file_path}")
-            return f"File not found: {decoded_filename}", 404
-            
-        # Set cache control headers
-        response = send_from_directory('static', decoded_filename)
-        response.headers['Cache-Control'] = 'public, max-age=31536000'  # 1 year cache
-        return response
-        
-    except Exception as e:
-        print(f"Error serving static file {filename}: {str(e)}")
-        return str(e), 500
-
-# Handle /images/ path for backward compatibility
-@app.route('/images/<path:filename>')
-def serve_legacy_images(filename):
-    try:
-        # Log the legacy image request
-        print(f"Legacy image request: {filename}")
-        # Redirect to the new static path with proper URL encoding
-        return redirect(f'/static/images/{filename}')
-    except Exception as e:
-        print(f"Error in legacy image handler: {str(e)}")
-        return str(e), 500
 
 # Serve main.js from root
 @app.route('/main.js')
 def serve_js():
-    return send_file('main.js')
+    return send_file(os.path.join(BASE_DIR, 'main.js'))
 
-# Serve index.html for all other routes
+
+# Old /images/ links -> static/images/
+@app.route('/images/<path:filename>')
+def serve_legacy_images(filename):
+    return send_from_directory(os.path.join(BASE_DIR, 'static', 'images'), filename)
+
+
+@app.route('/healthz')
+def healthz():
+    return jsonify({'ok': True})
+
+
+# Any other non-API path gets the single-page app.
+# Never serve arbitrary files from the project root: that would expose .env and source code.
 @app.route('/<path:path>')
 def serve_file(path):
     if path.startswith('api/'):
         return "Not found", 404
-    if os.path.exists(path):
-        return send_file(path)
-    return send_file('index.html')
+    return send_file(os.path.join(BASE_DIR, 'index.html'))
+
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze():
@@ -254,12 +231,22 @@ def weather():
 
         resp = requests.get('https://api.openweathermap.org/data/2.5/weather', params=params, timeout=10)
         data = resp.json()
-        city_name = data.get('name', city or 'your area')
+        city_name = data.get('name') or city or 'your area'
         weather_desc = data['weather'][0]['description']
         temp_c = data['main']['temp']
         weather_str = f"{weather_desc.capitalize()}, {temp_c}°C in {city_name}."
+        wind_ms = (data.get('wind') or {}).get('speed')
 
-        return jsonify({'weather': weather_str})
+        return jsonify({
+            'weather': weather_str,
+            'city': city_name,
+            'description': weather_desc,
+            'temp': temp_c,
+            'feels_like': data['main'].get('feels_like'),
+            'humidity': data['main'].get('humidity'),
+            'wind_kmh': round(wind_ms * 3.6, 1) if wind_ms is not None else None,
+            'icon': data['weather'][0].get('icon'),
+        })
     except Exception as e:
         return jsonify({'weather': f'Error: {str(e)}'})
 
@@ -273,7 +260,7 @@ def mandi():
             'https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070'
             f'?api-key={MANDI_API_KEY}&format=json&filters[market]={market}&filters[commodity]={commodity}&limit=5'
         )
-        resp = requests.get(url)
+        resp = requests.get(url, timeout=15)
         if resp.status_code == 200:
             data = resp.json()
             records = data.get('records', [])
@@ -284,7 +271,9 @@ def mandi():
                 f"{rec['commodity']} in {rec['market']} ({rec['state']}): {rec['modal_price']} ₹/quintal on {rec['arrival_date']}"
                 for rec in records
             ]
-            return jsonify({'prices': '\n'.join(prices)})
+            keep = ('commodity', 'variety', 'market', 'district', 'state', 'arrival_date', 'min_price', 'max_price', 'modal_price')
+            slim = [{k: rec.get(k) for k in keep} for rec in records]
+            return jsonify({'prices': '\n'.join(prices), 'records': slim})
         else:
             return jsonify({'prices': 'No data'})
     except Exception as e:
@@ -322,7 +311,7 @@ def chat():
     try:
         if lat and lon:
             weather_params = {'lat': lat, 'lon': lon, 'appid': OPENWEATHER_API_KEY, 'units': 'metric'}
-            weather_resp = requests.get('https://api.openweathermap.org/data/2.5/weather', params=weather_params)
+            weather_resp = requests.get('https://api.openweathermap.org/data/2.5/weather', params=weather_params, timeout=10)
             weather_json = weather_resp.json()
             city = weather_json.get('name', 'your area')
             weather_desc = weather_json['weather'][0]['description']
@@ -330,7 +319,7 @@ def chat():
             weather_context = f"Current weather in {city}: {weather_desc}, {weather_temp}°C."
         else:
             weather_params = {'q': 'Delhi', 'appid': OPENWEATHER_API_KEY, 'units': 'metric'}
-            weather_resp = requests.get('https://api.openweathermap.org/data/2.5/weather', params=weather_params)
+            weather_resp = requests.get('https://api.openweathermap.org/data/2.5/weather', params=weather_params, timeout=10)
             weather_json = weather_resp.json()
             weather_desc = weather_json['weather'][0]['description']
             weather_temp = weather_json['main']['temp']
@@ -358,14 +347,14 @@ PreferredLanguage: {lang}
 ### YourResponse
 """
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+        url = gemini_url()
         payload = {
             "contents": [
                 {"parts": [{"text": prompt}]}
             ]
         }
         headers = {'Content-Type': 'application/json'}
-        resp = requests.post(url, headers=headers, data=json.dumps(payload))
+        resp = requests.post(url, headers=headers, data=json.dumps(payload), timeout=30)
         if resp.status_code == 200:
             reply = resp.json()['candidates'][0]['content']['parts'][0]['text']
             return jsonify({'reply': reply})
@@ -376,4 +365,4 @@ PreferredLanguage: {lang}
 
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port, debug=os.getenv("FLASK_DEBUG") == "1")

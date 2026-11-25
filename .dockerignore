@@ -1,0 +1,9 @@
+.git
+.vercel
+venv
+__pycache__
+notebooks
+model_files
+*.ipynb
+.env
+config.env

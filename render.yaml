@@ -1,27 +1,22 @@
+# Render Blueprint (free plan has 512 MB RAM — tight for PyTorch; Hugging Face Spaces is the recommended free host)
 services:
   - type: web
     name: krishivaani
-    env: python@3.11
-    region: ap-south-1
+    runtime: python
+    plan: free
+    region: singapore
     buildCommand: |
       pip install --upgrade pip
-      pip install torch==2.0.1 torchvision==0.15.2 --index-url https://download.pytorch.org/whl/cpu
-      pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
+      pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cpu
+      pip install -r requirements-deploy.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
+    healthCheckPath: /healthz
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
       - key: GEMINI_API_KEY
-        from:
-          type: secret
-          name: gemini_api_key
+        sync: false
       - key: OPENWEATHER_API_KEY
-        from:
-          type: secret
-          name: openweather_api_key
+        sync: false
       - key: MANDI_API_KEY
-        from:
-          type: secret
-          name: mandi_api_key
-          property: mandi_api_key
-    plan: free
-    numInstances: 1
-    healthCheckPath: /
+        sync: false

@@ -3,101 +3,182 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>KrishiVaani AI</title>
-  <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Pixel Font -->
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
-  <!-- Favicon -->
-  <link rel="icon" type="image/png" sizes="32x32" href="/static/images/Screenshot 2025-06-25 121137.png">
-  <style>
-    body {
-      font-family: 'Press Start 2P', monospace;
-      background: url('/static/images/pixel-art-retro-videogame-landscape-background-combine-harvester-wheat-field-300530648.webp') center center/cover no-repeat fixed;
-      /* Replace bg1.png with the actual image you want as background */
-      min-height: 100vh;
-      color: #fff;
-      text-shadow: 2px 2px 0 #222;
-    }
-    .retro-border {
-      border: 4px solid #00ff99;
-      box-shadow: 0 0 0 4px #222, 0 0 16px 0 #00ff9988;
-      border-radius: 12px;
-    }
-    .pixel-btn {
-      background: #222;
-      color: #00ff99;
-      border: 2px solid #00ff99;
-      font-family: 'Press Start 2P', monospace;
-      padding: 0.5rem 1.5rem;
-      margin: 0.5rem;
-      border-radius: 8px;
-      transition: background 0.2s, color 0.2s;
-    }
-    .pixel-btn:hover {
-      background: #00ff99;
-      color: #222;
-    }
-  </style>
+  <title>KrishiVaani AI — Farm advice in your language</title>
+  <meta name="description" content="Check crop leaf diseases from a photo, ask farming questions by voice in 13 Indian languages, and see live weather and mandi prices.">
+  <meta name="theme-color" content="#2d6a3e">
+  <link rel="icon" type="image/png" href="/static/images/Screenshot%202025-06-25%20121137.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Mukta:wght@400;500;600;700&family=Pixelify+Sans:wght@500&family=Noto+Sans:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
 </head>
-<body class="flex flex-col items-center justify-center min-h-screen">
-  <div class="absolute top-4 right-8">
-    <select id="langSelect" class="p-1 rounded text-black">
-      <option value="en">English</option>
-      <option value="hi">हिन्दी</option>
-      <option value="bn">বাংলা</option>
-      <option value="ta">தமிழ்</option>
-      <option value="te">తెలుగు</option>
-      <option value="mr">मराठी</option>
-      <option value="gu">ગુજરાતી</option>
-      <option value="kn">ಕನ್ನಡ</option>
-      <option value="ml">മലയാളം</option>
-      <option value="pa">ਪੰਜਾਬੀ</option>
-      <option value="ur">اردو</option>
-      <option value="or">ଓଡ଼ିଆ</option>
-      <option value="as">অসমীয়া</option>
-    </select>
-  </div>
-  <header class="mt-8 mb-6">
-    <h1 class="text-3xl md:text-5xl retro-border py-4 bg-black bg-opacity-60 text-center w-full">
-        KrishiVaani AI
-      </h1>
-          <p class="mt-4 text-lg md:text-xl text-center bg-black bg-opacity-50 px-4 py-2 rounded retro-border">Smart Farming Insights for Every Indian Farmer</p>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-leaf" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19c0-8 5-14 15-15-1 10-7 15-15 15Z"/><path d="M5 19 13 11"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4V5Z"/><path d="M8 9.5h8M8 12.5h5"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></symbol>
+    <symbol id="i-coin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 5h10M7 9h10M13 5c3 0 3 8-2 8H7l7 7"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12 20 4l-6 16-2.5-6.5L4 12Z"/></symbol>
+    <symbol id="i-speaker" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4v-5Z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0C18.5 15.4 12 21 12 21Z"/><circle cx="12" cy="10" r="2.3"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.8 3 2.8 15 0 18M12 3c-2.8 3-2.8 15 0 18"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8h4l1.5-2.5h6L16.5 8h4v11h-17V8Z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/></symbol>
+  </svg>
+
+  <header class="topbar">
+    <div class="topbar__inner">
+      <a class="brand" href="/" aria-label="KrishiVaani AI home">
+        <svg class="brand__mark" viewBox="0 0 34 34" aria-hidden="true">
+          <rect width="34" height="34" rx="9" fill="#2d6a3e"/>
+          <path d="M9 25c0-9 5.5-15 16-16-1 10.5-6.5 16-16 16Z" fill="#e2a42a"/>
+          <path d="M9 25 18 16" stroke="#2d6a3e" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <span class="brand__name">Krishi<em>Vaani</em></span>
+        <span class="brand__tag">AI</span>
+      </a>
+      <nav class="topbar__nav" aria-label="Sections">
+        <a href="#diagnose" data-i18n="navDiagnose">Leaf check</a>
+        <a href="#ask" data-i18n="navAsk">Ask</a>
+        <a href="#weather-card" data-i18n="weatherHeading">Weather</a>
+        <a href="#mandi-card" data-i18n="mandiHeading">Mandi prices</a>
+      </nav>
+      <label class="lang">
+        <svg aria-hidden="true"><use href="#i-globe"/></svg>
+        <span class="sr-only">Language</span>
+        <select id="langSelect">
+          <option value="en">English</option>
+          <option value="hi">हिन्दी</option>
+          <option value="bn">বাংলা</option>
+          <option value="ta">தமிழ்</option>
+          <option value="te">తెలుగు</option>
+          <option value="mr">मराठी</option>
+          <option value="gu">ગુજરાતી</option>
+          <option value="kn">ಕನ್ನಡ</option>
+          <option value="ml">മലയാളം</option>
+          <option value="pa">ਪੰਜਾਬੀ</option>
+          <option value="ur">اردو</option>
+          <option value="or">ଓଡ଼ିଆ</option>
+          <option value="as">অসমীয়া</option>
+        </select>
+      </label>
+    </div>
   </header>
-  <main class="w-full max-w-2xl p-8 bg-black bg-opacity-70 retro-border">
-    <section class="mb-6">
-      <h2 class="text-xl mb-2" data-i18n="uploadLabel">Upload Crop Leaf Photo</h2>
-      <input type="file" id="imageInput" accept="image/*" class="block w-full mb-4" />
-      <button class="pixel-btn" id="analyzeBtn" data-i18n="analyzeBtn">Analyze</button>
-    </section>
-    <section class="mb-6">
-      <h2 class="text-xl mb-2" data-i18n="askSpeak">Ask or Speak Your Query</h2>
-      <div class="flex gap-2">
-        <input type="text" id="textQuery" placeholder="Type your question..." data-i18n-placeholder="queryPlaceholder" class="block w-full mb-2 p-2 rounded text-black" />
-        <button class="pixel-btn" id="sendBtn" aria-label="Send Query" data-i18n="sendBtn">Send</button>
-        <button class="pixel-btn" id="voiceBtn" aria-label="Speak Query" data-i18n="speakBtn">🎤 Speak</button>
-        <button class="pixel-btn" id="stopBtn" aria-label="Stop Voice / Speech" data-i18n="stopBtn">⏹ Stop</button>
+
+  <section class="hero">
+    <div class="hero__frame">
+      <div class="hero__copy">
+        <p class="hero__eyebrow">Pocket agronomist · 13 languages</p>
+        <h1 data-i18n="heroTitle">Ask about your crop in the language you think in.</h1>
+        <p class="hero__sub" data-i18n="heroSub">Photograph a sick leaf, speak your question, and check today's weather and mandi rates — all in one place.</p>
+        <div class="hero__chips">
+          <a class="chip" href="#diagnose"><svg width="16" height="16"><use href="#i-camera"/></svg><span data-i18n="navDiagnose">Leaf check</span></a>
+          <a class="chip" href="#ask"><svg width="16" height="16"><use href="#i-mic"/></svg><span data-i18n="navAsk">Ask</span></a>
+          <a class="chip" href="#mandi-card"><svg width="16" height="16"><use href="#i-coin"/></svg><span data-i18n="mandiHeading">Mandi prices</span></a>
+        </div>
       </div>
-    </section>
-    <section class="mb-8">
-      <h2 class="text-2xl mb-4 font-bold">Results & Advice</h2>
-      <div class="flex items-center mb-2">
-        <img src="images/Screenshot 2025-06-24 004009.png" alt="KrishiVaani AI Avatar" class="w-10 h-10 rounded-full mr-3 border-2 border-green-400 bg-black bg-opacity-40" />
-        <span class="font-mono text-green-300 text-xs">KrishiVaani AI</span>
-      </div>
-      <div id="results" class="p-4 bg-gray-900 bg-opacity-80 rounded retro-border min-h-[80px]">Awaiting input...</div>
-      <button class="pixel-btn mt-4" id="speakAdviceBtn" data-i18n="listenBtn">🔊 Listen</button>
-    </section>
-    <section class="mt-8">
-      <div class="mb-6">
-        <h3 class="text-lg mb-2" data-i18n="weatherHeading">Weather</h3>
-        <button class="pixel-btn mb-2" id="fetchWeatherBtn" data-i18n="useLocationBtn">📍 Use My Location</button>
-        <div id="weather" class="p-2 bg-gray-800 rounded retro-border min-h-[40px]">Loading...</div>
-      </div>
-      <div>
-        <h3 class="text-lg mb-2" data-i18n="mandiHeading">Mandi Prices</h3>
-        <div class="flex flex-wrap gap-2 mb-2">
-          <select id="marketSelect" class="p-1 rounded text-black" title="Select Market (City)" aria-label="Select Market">
+    </div>
+  </section>
+
+  <main class="layout">
+    <div class="col">
+      <!-- Leaf check -->
+      <section class="card" id="diagnose" aria-labelledby="diagnose-title">
+        <div class="card__head">
+          <span class="card__icon"><svg><use href="#i-leaf"/></svg></span>
+          <div>
+            <h2 id="diagnose-title" data-i18n="uploadLabel">Upload Crop Leaf Photo</h2>
+            <p class="card__hint" data-i18n="uploadHint">One leaf, close up, in daylight works best.</p>
+          </div>
+        </div>
+        <div class="diagnose">
+          <label class="drop" id="dropZone">
+            <input type="file" id="imageInput" accept="image/*" aria-label="Choose leaf photo">
+            <div class="drop__empty" id="dropEmpty">
+              <svg aria-hidden="true"><use href="#i-camera"/></svg>
+              <strong data-i18n="dropTitle">Tap to take or choose a photo</strong>
+              <span data-i18n="dropSub">or drag it here</span>
+            </div>
+            <img id="previewImg" alt="" hidden>
+          </label>
+          <div class="diagnose__side">
+            <div class="diagnose__actions">
+              <button class="btn btn--primary" id="analyzeBtn" disabled>
+                <svg aria-hidden="true"><use href="#i-leaf"/></svg><span data-i18n="analyzeBtn">Analyze</span>
+              </button>
+              <button class="btn btn--ghost" id="clearImgBtn" hidden data-i18n="clearBtn">Clear</button>
+            </div>
+            <p class="crops"><span data-i18n="cropsLabel">Works for</span>: <b>Tomato</b>, <b>Potato</b>, <b>Bell pepper</b></p>
+            <div class="verdict" id="verdict" aria-live="polite">
+              <p class="verdict__empty" data-i18n="verdictEmpty">The diagnosis and remedy will appear here.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Ask -->
+      <section class="card" id="ask" aria-labelledby="ask-title">
+        <div class="card__head">
+          <span class="card__icon"><svg><use href="#i-chat"/></svg></span>
+          <div>
+            <h2 id="ask-title" data-i18n="askSpeak">Ask or Speak Your Query</h2>
+            <p class="card__hint" data-i18n="askHint">Answers use your local weather and the mandi prices shown on this page.</p>
+          </div>
+          <button class="btn btn--ghost btn--sm" id="stopBtn" title="Stop voice">
+            <svg aria-hidden="true"><use href="#i-stop"/></svg><span data-i18n="stopBtn">Stop</span>
+          </button>
+        </div>
+        <div class="thread" id="thread" aria-live="polite">
+          <div class="suggest" id="suggest">
+            <button type="button" data-q="My tomato leaves have yellow spots. What should I do?">Tomato leaves have yellow spots</button>
+            <button type="button" data-q="Should I sell my wheat now or store it for a month?">Sell wheat now or store?</button>
+            <button type="button" data-q="Is it a good day to spray pesticide given the weather?">Good day to spray?</button>
+          </div>
+        </div>
+        <form class="composer" id="composer" autocomplete="off">
+          <label for="textQuery" class="sr-only">Your question</label>
+          <input type="text" id="textQuery" placeholder="Type your question..." data-i18n-placeholder="queryPlaceholder">
+          <button type="button" class="btn btn--ghost btn--icon" id="voiceBtn" aria-label="Speak your question" title="Speak">
+            <svg aria-hidden="true"><use href="#i-mic"/></svg>
+          </button>
+          <button type="submit" class="btn btn--primary" id="sendBtn">
+            <svg aria-hidden="true"><use href="#i-send"/></svg><span data-i18n="sendBtn">Send</span>
+          </button>
+        </form>
+      </section>
+    </div>
+
+    <aside class="col">
+      <!-- Weather -->
+      <section class="card" id="weather-card" aria-labelledby="weather-title">
+        <div class="card__head">
+          <span class="card__icon card__icon--sun"><svg><use href="#i-sun"/></svg></span>
+          <div>
+            <h2 id="weather-title" data-i18n="weatherHeading">Weather</h2>
+            <p class="card__hint" data-i18n="weatherHint">Right now, near you</p>
+          </div>
+          <button class="btn btn--ghost btn--sm" id="fetchWeatherBtn" title="Use my location">
+            <svg aria-hidden="true"><use href="#i-pin"/></svg><span data-i18n="useLocationBtn">My location</span>
+          </button>
+        </div>
+        <div id="weather" aria-live="polite"><div class="skel"><i></i><i></i><i></i></div></div>
+      </section>
+
+      <!-- Mandi -->
+      <section class="card" id="mandi-card" aria-labelledby="mandi-title">
+        <div class="card__head">
+          <span class="card__icon card__icon--coin"><svg><use href="#i-coin"/></svg></span>
+          <div>
+            <h2 id="mandi-title" data-i18n="mandiHeading">Mandi Prices</h2>
+            <p class="card__hint" data-i18n="mandiHint">Latest AGMARKNET rates, ₹ per quintal</p>
+          </div>
+        </div>
+        <div class="mandi__controls">
+          <div class="field">
+            <label for="marketSelect" data-i18n="marketLabel">Market</label>
+            <select id="marketSelect">
             <optgroup label="North India">
               <option value="DELHI">Delhi</option>
               <option value="LUDHIANA">Ludhiana</option>
@@ -158,7 +239,10 @@
               <option value="UJJAIN">Ujjain</option>
             </optgroup>
           </select>
-          <select id="commoditySelect" class="p-1 rounded text-black" title="Select Crop/Commodity" aria-label="Select Commodity">
+          </div>
+          <div class="field">
+            <label for="commoditySelect" data-i18n="cropLabel">Crop</label>
+            <select id="commoditySelect">
             <option value="Wheat">Wheat</option>
             <option value="Rice">Rice</option>
             <option value="Maize">Maize</option>
@@ -232,15 +316,23 @@
             <option value="Watermelon">Watermelon</option>
             <option value="Muskmelon">Muskmelon</option>
           </select>
-          <button class="pixel-btn" id="fetchMandiBtn">Fetch Prices</button>
+          </div>
+          <button class="btn btn--ghost btn--icon" id="fetchMandiBtn" aria-label="Refresh prices" title="Refresh">
+            <svg aria-hidden="true"><use href="#i-refresh"/></svg>
+          </button>
         </div>
-        <div id="mandi" class="p-2 bg-gray-800 rounded retro-border min-h-[40px]">Loading...</div>
-      </div>
-    </section>
+        <div id="mandi" aria-live="polite"><div class="skel"><i></i><i></i><i></i></div></div>
+      </section>
+    </aside>
   </main>
-  <footer class="mt-8 mb-4 text-center text-xs bg-black bg-opacity-40 px-4 py-2 rounded retro-border">
-    &copy; 2025 KrishiVaani AI &mdash; Empowering Farmers in Every Language
+
+  <footer class="footer">
+    <div class="footer__inner">
+      <span>&copy; 2025 KrishiVaani AI — <span data-i18n="footerTag">Empowering farmers in every language</span></span>
+      <span><span data-i18n="footerNote">Advice is a guide, not a substitute for your local Krishi Vigyan Kendra.</span> · <a href="https://github.com/Ankit-Basu/KrishiVaaniAI" target="_blank" rel="noopener">GitHub</a></span>
+    </div>
   </footer>
+
   <script src="/main.js"></script>
 </body>
 </html>
