@@ -1,82 +1,79 @@
-import os
-import torch
-import torch.nn as nn
-import torchvision.transforms as transforms
-from torchvision import models
-from PIL import Image
+"""KrishiVaani AI — Flask backend.
+
+Serves the static site in web/ and these JSON endpoints:
+  POST /api/analyze  leaf photo -> disease class, confidence, remedy
+  POST /api/chat     farmer question -> Gemini answer (uses weather + mandi context)
+  GET  /api/weather  current weather by lat/lon or city
+  GET  /api/mandi    AGMARKNET prices for a market + commodity
+  POST /api/tts      text -> base64 MP3 (gTTS), used when the browser has no voice
+"""
+import base64
 import io
 import json
-from flask import Flask, request, jsonify, send_file, send_from_directory, url_for, redirect
 import os
-from werkzeug.utils import secure_filename
-from flask_cors import CORS
-import requests
-from gtts import gTTS
-import base64
 
-# Load config.env
+import requests
+import torch
 from dotenv import load_dotenv
-load_dotenv('.env')
-load_dotenv('config.env')
+from flask import Flask, jsonify, request, send_from_directory
+from flask_cors import CORS
+from gtts import gTTS
+from PIL import Image
+from torchvision import models, transforms
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+WEB_DIR = os.path.join(BASE_DIR, 'web')
+MODEL_DIR = os.path.join(BASE_DIR, 'model')
+
+load_dotenv(os.path.join(BASE_DIR, '.env'))
+
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.5-flash')
+OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
+MANDI_API_KEY = os.getenv('MANDI_API_KEY')
+
+OPENWEATHER_URL = 'https://api.openweathermap.org/data/2.5/weather'
+MANDI_URL = 'https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070'
 
 
-def gemini_url():
-    return f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+# ---------------------------------------------------------------------------
+# Model
+# ---------------------------------------------------------------------------
+with open(os.path.join(MODEL_DIR, 'index_to_name.json'), 'r') as f:
+    idx_to_class = {int(k): v for k, v in json.load(f).items()}
 
 
-# Load class to index mapping
-with open(os.path.join(BASE_DIR, 'index_to_name.json'), 'r') as f:
-    class_to_name = json.load(f)
-    idx_to_class = {int(k): v for k, v in class_to_name.items()}
-
-# Initialize the model
 def load_model(model_path):
-    # Create model
-    model = models.mobilenet_v2(num_classes=len(idx_to_class))
-    
-    # Load the trained weights
-    checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
-    
-    # Handle DataParallel or other wrappers
-    if isinstance(checkpoint, torch.nn.DataParallel):
-        checkpoint = checkpoint.module
-    
-    # Load state dict
-    model.load_state_dict(checkpoint)
-    model.eval()
-    return model
+    net = models.mobilenet_v2(num_classes=len(idx_to_class))
+    state = torch.load(model_path, map_location='cpu')
+    if isinstance(state, torch.nn.DataParallel):
+        state = state.module
+    net.load_state_dict(state)
+    net.eval()
+    return net
 
-# Load the model
-model = load_model(os.path.join(BASE_DIR, 'mobilenetv2_leaf_disease_final.pth'))
 
-# Image transformations
+model = load_model(os.path.join(MODEL_DIR, 'mobilenetv2_leaf_disease_final.pth'))
+
 preprocess = transforms.Compose([
     transforms.Resize(256),
     transforms.CenterCrop(224),
     transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
 ])
 
-def predict_image(image_bytes):
-    # Open and preprocess the image
-    image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
-    input_tensor = preprocess(image)
-    input_batch = input_tensor.unsqueeze(0)  # Create a mini-batch
-    
-    # Make prediction
-    with torch.no_grad():
-        output = model(input_batch)
-    
-    # Get the predicted class
-    _, predicted_idx = torch.max(output, 1)
-    predicted_class = idx_to_class[predicted_idx.item()]
-    
-    return predicted_class, output
 
-# Simple remedy mapping (you can expand this with more detailed remedies)
+def predict_image(image_bytes):
+    """Return (class_name, confidence 0..1) for a leaf photo."""
+    image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+    with torch.no_grad():
+        logits = model(preprocess(image).unsqueeze(0))
+    probs = torch.nn.functional.softmax(logits[0], dim=0)
+    conf, idx = probs.max(0)
+    return idx_to_class[idx.item()], float(conf.item())
+
+
+# Field-level remedies for the model's 15 classes (PlantVillage subset)
 REMEDY_MAP = {
     'Pepper__bell___Bacterial_spot': 'Remove spotted leaves, avoid overhead watering, and spray a copper-based bactericide every 7-10 days. Use certified disease-free seed next season.',
     'Pepper__bell___healthy': 'Your pepper plant looks healthy. Keep watering at the base and check the underside of leaves weekly.',
@@ -95,74 +92,78 @@ REMEDY_MAP = {
     'Tomato_healthy': 'Your tomato plant looks healthy. Stake the plant, water at the base, and inspect leaves weekly.',
 }
 
-def get_remedy(disease_name):
-    return REMEDY_MAP.get(disease_name)
+
+# ---------------------------------------------------------------------------
+# External services
+# ---------------------------------------------------------------------------
+def gemini(prompt, timeout=30, **generation_config):
+    """Call Gemini and return the text reply (raises on failure)."""
+    url = f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent'
+    payload = {'contents': [{'parts': [{'text': prompt}]}]}
+    if generation_config:
+        payload['generationConfig'] = generation_config
+    resp = requests.post(url, params={'key': GEMINI_API_KEY}, json=payload, timeout=timeout)
+    resp.raise_for_status()
+    return resp.json()['candidates'][0]['content']['parts'][0]['text'].strip()
 
 
 def translate_text(text, target_lang):
-    """Translate given text to target_lang using Gemini if not English."""
+    """Translate advice into target_lang (ISO code); returns the original on failure."""
     if target_lang == 'en' or not text:
         return text
-    prompt = f"Translate the following agricultural advice into {target_lang}. Keep scientific names or pesticide ingredient names untranslated.\n\n{text}"
     try:
-        url = gemini_url()
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        resp = requests.post(url, json=payload, timeout=15)
-        resp.raise_for_status()
-        return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        return gemini(
+            f'Translate the following agricultural advice into the language with ISO code "{target_lang}". '
+            f'Keep scientific names and pesticide ingredient names untranslated. Reply with the translation only.\n\n{text}',
+            timeout=15,
+        )
     except Exception:
         return text
 
 
-def generate_remedy_gemini(disease_name, lang='en'):
-    """Query Gemini API for a concise remedy if not in static map."""
-    prompt = f"""
-    You are an expert plant pathologist. In one or two sentences, provide a practical field-level remedy for the following crop disease so that it is understandable by Indian farmers.
-    Return plain text with no bullet points or asterisks.
-    Language: {lang}
-    Disease: {disease_name}
-    """
+def generate_remedy(disease_name, lang='en'):
     try:
-        url = gemini_url()
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.6, "maxOutputTokens": 200}
-        }
-        resp = requests.post(url, json=payload, timeout=15)
-        resp.raise_for_status()
-        data = resp.json()
-        text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        return text
+        return gemini(
+            'You are an expert plant pathologist. In one or two sentences, give a practical field-level remedy '
+            'for this crop disease that an Indian farmer can follow. Plain text, no bullet points or asterisks.\n'
+            f'Language: {lang}\nDisease: {disease_name}',
+            timeout=15, temperature=0.6, maxOutputTokens=200,
+        )
     except Exception:
-        return "Consult a local agricultural expert for specific treatment options."
+        return 'Consult your local Krishi Vigyan Kendra for specific treatment options.'
 
-app = Flask(__name__, static_folder=os.path.join(BASE_DIR, 'static'), static_url_path='/static')
+
+def get_weather(lat=None, lon=None, city=None):
+    """Return a dict with current weather; defaults to Delhi."""
+    if lat and lon:
+        params = {'lat': lat, 'lon': lon}
+    else:
+        params = {'q': city or 'Delhi'}
+    params.update(appid=OPENWEATHER_API_KEY, units='metric')
+    data = requests.get(OPENWEATHER_URL, params=params, timeout=10).json()
+    city_name = data.get('name') or city or 'your area'
+    desc = data['weather'][0]['description']
+    temp = data['main']['temp']
+    wind_ms = (data.get('wind') or {}).get('speed')
+    return {
+        'weather': f'{desc.capitalize()}, {temp}°C in {city_name}.',
+        'city': city_name,
+        'description': desc,
+        'temp': temp,
+        'feels_like': data['main'].get('feels_like'),
+        'humidity': data['main'].get('humidity'),
+        'wind_kmh': round(wind_ms * 3.6, 1) if wind_ms is not None else None,
+        'icon': data['weather'][0].get('icon'),
+    }
+
+
+# ---------------------------------------------------------------------------
+# App + static site
+# ---------------------------------------------------------------------------
+app = Flask(__name__, static_folder=None)
 CORS(app)
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB uploads
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 3600
-
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
-MANDI_API_KEY = os.getenv('MANDI_API_KEY')
-
-
-# Serve index.html for root and /index.html
-@app.route('/')
-@app.route('/index.html')
-def serve_index():
-    return send_file(os.path.join(BASE_DIR, 'index.html'))
-
-
-# Serve main.js from root
-@app.route('/main.js')
-def serve_js():
-    return send_file(os.path.join(BASE_DIR, 'main.js'))
-
-
-# Old /images/ links -> static/images/
-@app.route('/images/<path:filename>')
-def serve_legacy_images(filename):
-    return send_from_directory(os.path.join(BASE_DIR, 'static', 'images'), filename)
 
 
 @app.route('/healthz')
@@ -170,199 +171,127 @@ def healthz():
     return jsonify({'ok': True})
 
 
-# Any other non-API path gets the single-page app.
-# Never serve arbitrary files from the project root: that would expose .env and source code.
+@app.route('/')
 @app.route('/<path:path>')
-def serve_file(path):
+def site(path='index.html'):
+    """Serve files from web/; unknown paths fall back to index.html.
+    send_from_directory refuses paths outside web/, so .env and source stay private."""
     if path.startswith('api/'):
-        return "Not found", 404
-    return send_file(os.path.join(BASE_DIR, 'index.html'))
+        return jsonify({'error': 'not found'}), 404
+    if os.path.isfile(os.path.join(WEB_DIR, path)):
+        return send_from_directory(WEB_DIR, path)
+    return send_from_directory(WEB_DIR, 'index.html')
 
 
+# ---------------------------------------------------------------------------
+# API
+# ---------------------------------------------------------------------------
 @app.route('/api/analyze', methods=['POST'])
 def analyze():
-    """Handle image upload, run inference locally and return prediction & remedy."""
     if 'image' not in request.files:
         return jsonify({'error': 'No image uploaded'}), 400
-
     lang = request.form.get('lang', 'en')
-    image_file = request.files['image']
     try:
-        # Read bytes and run model
-        image_bytes = image_file.read()
-        predicted_class, logits = predict_image(image_bytes)
-
-        # Confidence
-        probabilities = torch.nn.functional.softmax(logits[0], dim=0)
-        confidence = float(probabilities.max().item())
-
-        # Remedy text
-        remedy = get_remedy(predicted_class)
-        if remedy is None:
-            remedy = generate_remedy_gemini(predicted_class, lang)
-        else:
-            remedy = translate_text(remedy, lang)
-
-        return jsonify({
-            'class': predicted_class,
-            'confidence': confidence,
-            'remedy': remedy,
-            'lang': lang
-        }), 200
+        predicted_class, confidence = predict_image(request.files['image'].read())
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': f'Could not read image: {e}'}), 400
+
+    remedy = REMEDY_MAP.get(predicted_class)
+    remedy = translate_text(remedy, lang) if remedy else generate_remedy(predicted_class, lang)
+    return jsonify({'class': predicted_class, 'confidence': confidence, 'remedy': remedy, 'lang': lang})
 
 
 @app.route('/api/weather', methods=['GET'])
 def weather():
-    """Return a simple description string for current weather.
-    Supports either lat/lon or city name. If both are missing it defaults to Delhi."""
-    city = request.args.get('city')
-    lat = request.args.get('lat')
-    lon = request.args.get('lon')
-
     try:
-        if city:
-            params = {'q': city, 'appid': OPENWEATHER_API_KEY, 'units': 'metric'}
-        elif lat and lon:
-            params = {'lat': lat, 'lon': lon, 'appid': OPENWEATHER_API_KEY, 'units': 'metric'}
-        else:
-            params = {'q': 'Delhi', 'appid': OPENWEATHER_API_KEY, 'units': 'metric'}
+        return jsonify(get_weather(request.args.get('lat'), request.args.get('lon'), request.args.get('city')))
+    except Exception:
+        app.logger.exception('weather lookup failed')
+        return jsonify({'weather': 'Weather unavailable right now.'})
 
-        resp = requests.get('https://api.openweathermap.org/data/2.5/weather', params=params, timeout=10)
-        data = resp.json()
-        city_name = data.get('name') or city or 'your area'
-        weather_desc = data['weather'][0]['description']
-        temp_c = data['main']['temp']
-        weather_str = f"{weather_desc.capitalize()}, {temp_c}°C in {city_name}."
-        wind_ms = (data.get('wind') or {}).get('speed')
-
-        return jsonify({
-            'weather': weather_str,
-            'city': city_name,
-            'description': weather_desc,
-            'temp': temp_c,
-            'feels_like': data['main'].get('feels_like'),
-            'humidity': data['main'].get('humidity'),
-            'wind_kmh': round(wind_ms * 3.6, 1) if wind_ms is not None else None,
-            'icon': data['weather'][0].get('icon'),
-        })
-    except Exception as e:
-        return jsonify({'weather': f'Error: {str(e)}'})
 
 @app.route('/api/mandi', methods=['GET'])
 def mandi():
-    # Uses data.gov.in AGMARKNET endpoint
     market = request.args.get('market', 'DELHI').upper()
     commodity = request.args.get('commodity', 'Wheat').capitalize()
+    params = {
+        'api-key': MANDI_API_KEY, 'format': 'json', 'limit': 5,
+        'filters[market]': market, 'filters[commodity]': commodity,
+    }
     try:
-        url = (
-            'https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070'
-            f'?api-key={MANDI_API_KEY}&format=json&filters[market]={market}&filters[commodity]={commodity}&limit=5'
+        resp = requests.get(MANDI_URL, params=params, timeout=15)
+        if resp.status_code != 200:
+            return jsonify({'prices': 'No data', 'records': []})
+        records = resp.json().get('records', [])
+        if not records:
+            return jsonify({'prices': 'No mandi price data found.', 'records': []})
+        keep = ('commodity', 'variety', 'market', 'district', 'state', 'arrival_date',
+                'min_price', 'max_price', 'modal_price')
+        slim = [{k: rec.get(k) for k in keep} for rec in records]
+        text = '\n'.join(
+            f"{r['commodity']} in {r['market']} ({r['state']}): {r['modal_price']} ₹/quintal on {r['arrival_date']}"
+            for r in slim
         )
-        resp = requests.get(url, timeout=15)
-        if resp.status_code == 200:
-            data = resp.json()
-            records = data.get('records', [])
-            if not records:
-                return jsonify({'prices': 'No mandi price data found.'})
-            # Format price info
-            prices = [
-                f"{rec['commodity']} in {rec['market']} ({rec['state']}): {rec['modal_price']} ₹/quintal on {rec['arrival_date']}"
-                for rec in records
-            ]
-            keep = ('commodity', 'variety', 'market', 'district', 'state', 'arrival_date', 'min_price', 'max_price', 'modal_price')
-            slim = [{k: rec.get(k) for k in keep} for rec in records]
-            return jsonify({'prices': '\n'.join(prices), 'records': slim})
-        else:
-            return jsonify({'prices': 'No data'})
-    except Exception as e:
-        return jsonify({'prices': f'Error: {str(e)}'})
+        return jsonify({'prices': text, 'records': slim})
+    except Exception:
+        app.logger.exception('mandi lookup failed')
+        return jsonify({'prices': 'Mandi prices unavailable right now.', 'records': []})
+
 
 @app.route('/api/tts', methods=['POST'])
 def tts():
-    """Return base64 MP3 audio synthesized via gTTS for the given text & lang."""
-    data = request.get_json()
-    text = data.get('text', '')
-    lang = data.get('lang', 'en')
+    data = request.get_json(silent=True) or {}
+    text, lang = data.get('text', ''), data.get('lang', 'en')
     if not text:
         return jsonify({'error': 'No text'}), 400
     try:
-        tts_obj = gTTS(text=text, lang=lang)
         fp = io.BytesIO()
-        tts_obj.write_to_fp(fp)
-        audio_b64 = base64.b64encode(fp.getvalue()).decode('utf-8')
-        return jsonify({'audio': audio_b64})
+        gTTS(text=text, lang=lang).write_to_fp(fp)
+        return jsonify({'audio': base64.b64encode(fp.getvalue()).decode('utf-8')})
     except ValueError:
-        # gTTS doesn't support the requested language
         return jsonify({'error': 'unsupported_lang'}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 502
+
+
+CHAT_PROMPT = """You are KrishiVaani AI, an Indian agriculture assistant.
+- Only introduce yourself when the farmer greets you or asks who you are; otherwise answer directly.
+- You may answer questions about crops, diseases, pests, weather, mandi prices and selling decisions, storage, or general agriculture.
+
+Weather: {weather}
+MandiPrices: {mandi}
+PreferredLanguage: {lang}
+
+### FarmerQuestion
+{query}
+
+### Guidelines
+- Reply in the preferred language, in plain text with no Markdown or asterisks.
+- Keep it concise and actionable.
+
+### YourResponse
+"""
 
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
-    data = request.get_json()
-    query = data.get('query', '')
-    lang = data.get('lang', 'en')
-    lat = data.get('lat')
-    lon = data.get('lon')
-    mandi_info = data.get('mandi', '')
-    # Fetch current weather for context (use user location if available)
-    weather_context = ''
+    data = request.get_json(silent=True) or {}
+    query = (data.get('query') or '').strip()
+    if not query:
+        return jsonify({'reply': 'Please type a question.'}), 400
     try:
-        if lat and lon:
-            weather_params = {'lat': lat, 'lon': lon, 'appid': OPENWEATHER_API_KEY, 'units': 'metric'}
-            weather_resp = requests.get('https://api.openweathermap.org/data/2.5/weather', params=weather_params, timeout=10)
-            weather_json = weather_resp.json()
-            city = weather_json.get('name', 'your area')
-            weather_desc = weather_json['weather'][0]['description']
-            weather_temp = weather_json['main']['temp']
-            weather_context = f"Current weather in {city}: {weather_desc}, {weather_temp}°C."
-        else:
-            weather_params = {'q': 'Delhi', 'appid': OPENWEATHER_API_KEY, 'units': 'metric'}
-            weather_resp = requests.get('https://api.openweathermap.org/data/2.5/weather', params=weather_params, timeout=10)
-            weather_json = weather_resp.json()
-            weather_desc = weather_json['weather'][0]['description']
-            weather_temp = weather_json['main']['temp']
-            weather_context = f"Current weather in Delhi: {weather_desc}, {weather_temp}°C."
+        weather_context = 'Current weather: ' + get_weather(data.get('lat'), data.get('lon'))['weather']
     except Exception:
-        weather_context = "Weather data unavailable."
-    # Compose prompt for Gemini
-    prompt = f"""
-You are KrishiVaani AI, an Indian agriculture assistant.
-• ONLY introduce yourself when the farmer greets you (e.g., "hi", "hello") or explicitly asks who you are.
-• For all other queries, answer directly without any self-introduction.
-• You may answer questions about crops, crop diseases, pests, weather conditions, mandi/market prices and selling decisions, storage or general agriculture.
-Weather: {weather_context}
-MandiPrices: {mandi_info}
-PreferredLanguage: {lang}
-
----
-### FarmerQuestion
-{query}
-
-### Guidelines for YourResponse
-• Reply in plain text with no Markdown or bullet asterisks (*).
-• Keep it concise and actionable.
-
-### YourResponse
-"""
+        weather_context = 'Weather data unavailable.'
+    prompt = CHAT_PROMPT.format(weather=weather_context, mandi=data.get('mandi', ''),
+                                lang=data.get('lang', 'en'), query=query)
     try:
-        url = gemini_url()
-        payload = {
-            "contents": [
-                {"parts": [{"text": prompt}]}
-            ]
-        }
-        headers = {'Content-Type': 'application/json'}
-        resp = requests.post(url, headers=headers, data=json.dumps(payload), timeout=30)
-        if resp.status_code == 200:
-            reply = resp.json()['candidates'][0]['content']['parts'][0]['text']
-            return jsonify({'reply': reply})
-        else:
-            return jsonify({'reply': 'No reply.'})
-    except Exception as e:
-        return jsonify({'reply': f'Error: {str(e)}'})
+        return jsonify({'reply': gemini(prompt)})
+    except Exception:
+        # Don't echo the exception: request errors include the URL with the API key.
+        app.logger.exception('gemini chat failed')
+        return jsonify({'reply': 'Sorry, the assistant is unavailable right now. Please try again.'})
+
 
 if __name__ == '__main__':
-    port = int(os.getenv("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=os.getenv("FLASK_DEBUG") == "1")
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)), debug=os.getenv('FLASK_DEBUG') == '1')

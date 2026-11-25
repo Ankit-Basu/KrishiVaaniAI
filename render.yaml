@@ -7,8 +7,7 @@ services:
     region: singapore
     buildCommand: |
       pip install --upgrade pip
-      pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cpu
-      pip install -r requirements-deploy.txt
+      pip install -r requirements.txt
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
     healthCheckPath: /healthz
     envVars:

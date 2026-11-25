@@ -1,0 +1,8 @@
+# Vercel only hosts the static site in web/; the Python backend runs elsewhere.
+app.py
+requirements.txt
+model
+training
+scripts
+Dockerfile
+render.yaml

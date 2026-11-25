@@ -21,8 +21,7 @@ Optional: `GEMINI_MODEL` (default `gemini-2.5-flash`) if Google renames/retires 
 3. In the new Space, open **Settings → Variables and secrets** and add three **Secrets**:
    `GEMINI_API_KEY`, `OPENWEATHER_API_KEY`, `MANDI_API_KEY`.
 4. Upload the code. Easiest is the web UI: **Files → Add file → Upload files**, and drag in:
-   `Dockerfile`, `app.py`, `index.html`, `main.js`, `index_to_name.json`,
-   `mobilenetv2_leaf_disease_final.pth`, `requirements-deploy.txt`, and the whole `static/` folder.
+   `Dockerfile`, `app.py`, `requirements.txt`, and the whole `model/` and `web/` folders.
    Do **not** upload the project `README.md` — the Space's own README holds its config.
 5. Open the Space's `README.md` and make sure its header contains:
 
@@ -51,10 +50,11 @@ Geolocation and the microphone need HTTPS — `*.hf.space` is HTTPS, so both wor
 
 Keep the Space as the backend, and host only the static page elsewhere:
 
-- **Netlify**: in `netlify.toml`, replace `https://YOUR-BACKEND-URL` with your Space URL, then
-  *Add new site → Import from GitHub*, publish directory `.`, no build command.
-- **Vercel**: in `vercel.json`, replace `https://YOUR-BACKEND-URL` with your Space URL, then
-  *Add New → Project → import the repo*, framework preset **Other**, no build command.
+- **Vercel**: in `vercel.json`, replace `https://YOUR-BACKEND-URL` with your Space URL and push, then
+  *Add New → Project → import the repo*, framework preset **Other**, leave build settings empty
+  (`vercel.json` already sets the output folder to `web/`, and `.vercelignore` keeps the Python files out).
+- **Netlify**: in `netlify.toml`, replace `https://YOUR-BACKEND-URL` with your Space URL and push, then
+  *Add new site → Import from GitHub*. `netlify.toml` already publishes `web/`.
 
 Both forward `/api/*` to the Space, so nothing else changes.
 
@@ -66,11 +66,10 @@ Use this only if Hugging Face isn't an option.
 
 ## Run locally
 
+See [README.md](README.md#run-it-locally).
+
+## Check a deployment
+
 ```bash
-python -m venv venv
-venv\Scripts\activate            # Windows  (source venv/bin/activate on macOS/Linux)
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-pip install -r requirements-deploy.txt
-copy .env.example .env           # then paste your keys into .env
-python app.py                    # open http://localhost:5000
+python scripts/smoke_test.py https://<user>-krishivaani.hf.space
 ```

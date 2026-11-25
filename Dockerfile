@@ -4,15 +4,12 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PORT=7860
 WORKDIR /app
 
-# CPU-only PyTorch keeps the image small (~800 MB instead of several GB)
-RUN pip install --upgrade pip && \
-    pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cpu
+COPY requirements.txt .
+RUN pip install --upgrade pip && pip install -r requirements.txt
 
-COPY requirements-deploy.txt .
-RUN pip install -r requirements-deploy.txt
-
-COPY app.py index.html main.js index_to_name.json mobilenetv2_leaf_disease_final.pth ./
-COPY static ./static
+COPY app.py ./
+COPY model ./model
+COPY web ./web
 
 # Hugging Face runs containers as user 1000
 RUN useradd -m -u 1000 user && chown -R user /app
