@@ -1,6 +1,8 @@
 <div align="center">
 
-# 🌾 KrishiVaani AI
+<img src="web/images/favicon.svg" width="72" alt="KrishiVaani logo" />
+
+# KrishiVaani AI
 
 **A pocket agronomist for Indian farmers — in their own language.**
 
@@ -13,9 +15,11 @@ in any of 13 Indian languages.
 ![PyTorch](https://img.shields.io/badge/PyTorch-MobileNetV2-EE4C2C?logo=pytorch&logoColor=white)
 ![Gemini](https://img.shields.io/badge/Google-Gemini-4285F4?logo=google&logoColor=white)
 
-[Demo video](https://www.youtube.com/watch?v=Utio0C98-ZE) · [Deploy for free](DEPLOY.md) · [Report a bug](https://github.com/Ankit-Basu/KrishiVaaniAI/issues)
+[Screenshots](#screenshots) · [Deploy for free](DEPLOY.md) · [Report a bug](https://github.com/Ankit-Basu/KrishiVaaniAI/issues)
 
 </div>
+
+![KrishiVaani AI home page](docs/screenshots/home.png)
 
 ---
 
@@ -35,31 +39,17 @@ Most advisory apps are English-first, heavy on data, or ignore local context.
 | 💰 | **Mandi prices** — min / max / modal ₹ per quintal | AGMARKNET via data.gov.in, 50+ markets, 70+ crops |
 | 🌐 | **13 languages** | English, हिन्दी, বাংলা, தமிழ், తెలుగు, मराठी, ગુજરાતી, ಕನ್ನಡ, മലയാളം, ਪੰਜਾਬੀ, اردو, ଓଡ଼ିଆ, অসমীয়া |
 
-The UI is plain HTML/CSS/JS (no build step), mobile-first, and remembers the farmer's language.
+The UI is a pixel-art interface built with plain HTML/CSS/JS (no build step): pixel fonts and hand-drawn 12×12 pixel icons for the chrome, a readable body font that covers every Indic script, mobile-first layout, and it remembers the farmer's language.
 
-## Demo
+## Screenshots
 
-<p align="center">
-  <a href="https://www.youtube.com/watch?v=Utio0C98-ZE" target="_blank">
-    <img src="https://img.youtube.com/vi/Utio0C98-ZE/maxresdefault.jpg" alt="KrishiVaani demo video" width="720" />
-  </a>
-</p>
+| Leaf check | Ask KrishiVaani |
+|---|---|
+| ![Leaf check with diagnosis, confidence meter and remedy](docs/screenshots/leaf-check.png) | ![Chat answer with listen button](docs/screenshots/ask.png) |
 
-<details>
-<summary>Screenshots of the first version (June 2025)</summary>
-
-![Screenshot](https://github.com/user-attachments/assets/f9fb467b-0d06-4316-b95b-c3a94741420c)
-![Screenshot](https://github.com/user-attachments/assets/e19994b2-f512-4519-bf0d-f2dbbfe40ded)
-<img width="999" alt="Screenshot" src="https://github.com/user-attachments/assets/fcc7b117-5348-43db-ad3c-7687f5d86e11" />
-<img width="979" alt="Screenshot" src="https://github.com/user-attachments/assets/1b16bbd9-f1b7-4ebc-8d6e-d100c13128b4" />
-![Screenshot](https://github.com/user-attachments/assets/dd4c6329-7f0a-49c2-bb4a-7fe626597897)
-![Screenshot](https://github.com/user-attachments/assets/6453da56-5dfa-412b-8116-23c92acbf54a)
-![Screenshot](https://github.com/user-attachments/assets/b73a9d0f-c99b-4ac6-96a1-eeba7286d7aa)
-![Screenshot](https://github.com/user-attachments/assets/05397c18-483b-4ebe-8a4f-c284a3904e5f)
-<img width="1910" alt="Screenshot" src="https://github.com/user-attachments/assets/fe363168-d15c-4abd-ad77-47f80ed1c2e3" />
-<img width="1911" alt="Screenshot" src="https://github.com/user-attachments/assets/db24e46e-b09b-4f39-b13e-cdca81db41e6" />
-
-</details>
+| Weather and mandi prices | Mobile, in Hindi |
+|---|---|
+| ![Weather card with farming tip and mandi price table](docs/screenshots/weather-mandi.png) | <img src="docs/screenshots/mobile-hindi.png" width="300" alt="Mobile layout in Hindi" /> |
 
 ## How it works
 
@@ -83,6 +73,7 @@ KrishiVaaniAI/
 ├── model/
 │   ├── mobilenetv2_leaf_disease_final.pth   # trained weights (9 MB)
 │   └── index_to_name.json                   # class index → label
+├── docs/screenshots/      # images used in this README
 ├── web/                   # the website (static, no build step)
 │   ├── index.html
 │   ├── main.js            # UI logic, i18n, voice, API calls

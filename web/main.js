@@ -63,6 +63,8 @@ const translations = {
     footerNote: 'Advice is a guide, not a substitute for your local Krishi Vigyan Kendra.',
     remedy: 'What to do', confidence: 'confidence', healthy: 'Healthy', diseased: 'Disease found',
     analyzing: 'Looking closely at the leaf…', humidity: 'Humidity', wind: 'Wind', feels: 'Feels like',
+    ctaCheck: 'Check a leaf', ctaAsk: 'Ask a question', tryAsking: 'Try asking',
+    statDiseases: 'Leaf conditions', statAccuracy: 'Test accuracy', statLanguages: 'Languages', statMandis: 'Mandis',
   },
 };
 // Hindi extras for the new UI strings
@@ -78,6 +80,8 @@ Object.assign(translations.hi, {
   footerNote: 'यह सलाह मार्गदर्शन है; ज़रूरत पड़ने पर अपने कृषि विज्ञान केंद्र से संपर्क करें।',
   remedy: 'क्या करें', confidence: 'विश्वास', healthy: 'स्वस्थ', diseased: 'रोग मिला',
   analyzing: 'पत्ते को ध्यान से देखा जा रहा है…', humidity: 'नमी', wind: 'हवा', feels: 'महसूस',
+  ctaCheck: 'पत्ता जाँचें', ctaAsk: 'सवाल पूछें', tryAsking: 'ये पूछकर देखें',
+  statDiseases: 'पत्ते की स्थितियाँ', statAccuracy: 'टेस्ट सटीकता', statLanguages: 'भाषाएँ', statMandis: 'मंडियाँ',
 });
 
 const t = (key) => (translations[state.lang] && translations[state.lang][key]) || translations.en[key] || key;
@@ -149,8 +153,7 @@ function stopVoice() {
 
 function setRecording(on) {
   el.voiceBtn.classList.toggle('btn--rec', on);
-  el.voiceBtn.classList.toggle('btn--ghost', !on);
-  el.voiceBtn.innerHTML = on ? '<span class="pulse"></span>' : icon('mic');
+  el.voiceBtn.innerHTML = on ? '<span class="rec"></span>' : icon('mic');
 }
 
 function startVoice() {
@@ -213,14 +216,15 @@ async function analyze() {
     el.verdict.innerHTML = `
       <div class="verdict__top">
         <span class="verdict__crop">${esc(d.crop)}</span>
-        <span class="badge ${d.healthy ? 'badge--ok' : ''}">${esc(d.healthy ? t('healthy') : t('diseased'))}</span>
+        <span class="badge ${d.healthy ? 'badge--ok' : ''}">${icon(d.healthy ? 'check' : 'alert')}${esc(d.healthy ? t('healthy') : t('diseased'))}</span>
       </div>
       <div class="verdict__name">${esc(d.healthy ? t('healthy') : d.name)}</div>
-      <div class="meter ${pct < 60 ? 'meter--low' : ''}"><span style="width:0"></span></div>
+      <div class="meter ${pct < 60 ? 'meter--low' : ''}" role="img" aria-label="${pct}%">${
+        Array.from({ length: 10 }, (_, i) => `<i class="${i < Math.round(pct / 10) ? 'on' : ''}" style="animation-delay:${i * 60}ms"></i>`).join('')
+      }</div>
       <div class="meter__label">${pct}% ${esc(t('confidence'))}</div>
       <div class="verdict__remedy"><h3>${esc(t('remedy'))}</h3><p id="remedyText">${esc(data.remedy)}</p></div>
       <div class="verdict__foot"><button class="btn btn--ghost btn--sm" id="listenRemedy">${icon('speaker')}<span>${esc(t('listenBtn'))}</span></button></div>`;
-    requestAnimationFrame(() => { el.verdict.querySelector('.meter > span').style.width = pct + '%'; });
     $('listenRemedy').addEventListener('click', () => speakOut(`${d.healthy ? t('healthy') : d.name}. ${data.remedy}`));
   } catch (e) {
     el.verdict.innerHTML = `<p class="note note--err">Could not analyze the photo: ${esc(e.message)}</p>`;
@@ -287,8 +291,11 @@ function renderWeather(w) {
     el.weather.innerHTML = `<p class="note">${esc(w.weather || 'No weather data.')}</p>`;
     return;
   }
+  const d = (w.description || '').toLowerCase();
+  const art = /rain|drizzle|thunder|storm/.test(d) ? 'rain' : /cloud|mist|haze|fog|smoke|overcast/.test(d) ? 'cloud' : 'sun';
   el.weather.innerHTML = `
     <div class="wx">
+      <svg class="wx__art is-${art}" aria-hidden="true"><use href="#i-${art}"/></svg>
       <div class="wx__temp">${Math.round(w.temp)}<sup>°C</sup></div>
       <div>
         <div class="wx__desc">${esc(w.description)}</div>
@@ -299,7 +306,7 @@ function renderWeather(w) {
         <div class="stat"><dt>${esc(t('humidity'))}</dt><dd>${w.humidity != null ? w.humidity + '%' : '—'}</dd></div>
         <div class="stat"><dt>${esc(t('wind'))}</dt><dd>${w.wind_kmh != null ? Math.round(w.wind_kmh) + ' km/h' : '—'}</dd></div>
       </dl>
-      <p class="wx__tip">${esc(farmTip(w))}</p>
+      <p class="wx__tip">${icon('leaf')}<span>${esc(farmTip(w))}</span></p>
     </div>`;
 }
 
@@ -322,6 +329,14 @@ function locateAndFetchWeather() {
 // ---------------- mandi ----------------
 const fmtINR = (v) => { const n = Number(v); return Number.isFinite(n) ? '₹' + n.toLocaleString('en-IN') : esc(v); };
 
+// Small pixel bar showing where the modal price sits between min and max
+function rangeBar(r) {
+  const [lo, hi, mid] = [r.min_price, r.max_price, r.modal_price].map(Number);
+  if (![lo, hi, mid].every(Number.isFinite) || hi <= lo) return '';
+  const pos = Math.min(100, Math.max(0, ((mid - lo) / (hi - lo)) * 100));
+  return `<span class="range" aria-hidden="true"><b style="left:calc(${pos}% - 3px)"></b></span>`;
+}
+
 async function fetchMandi() {
   el.mandi.innerHTML = skeleton;
   const params = new URLSearchParams({ market: el.market.value, commodity: el.commodity.value });
@@ -338,7 +353,7 @@ async function fetchMandi() {
         <thead><tr><th>Variety</th><th class="num">Min</th><th class="num">Max</th><th class="num">Modal</th></tr></thead>
         <tbody>${rows.map((r) => `
           <tr>
-            <td>${esc(r.variety || r.commodity)}<small>${esc(r.market)} · ${esc(r.arrival_date)}</small></td>
+            <td>${esc(r.variety || r.commodity)}<small>${esc(r.market)} · ${esc(r.arrival_date)}</small>${rangeBar(r)}</td>
             <td class="num">${fmtINR(r.min_price)}</td>
             <td class="num">${fmtINR(r.max_price)}</td>
             <td class="num modal">${fmtINR(r.modal_price)}</td>
