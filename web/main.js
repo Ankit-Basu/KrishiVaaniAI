@@ -32,6 +32,8 @@ const state = {
   mandiText: '',
   recognition: null,
   previewUrl: null,
+  history: [],        // recent chat turns sent with each question for follow-ups
+  installPrompt: null,
 };
 
 // ---------------- i18n ----------------
@@ -65,6 +67,22 @@ const translations = {
     analyzing: 'Looking closely at the leaf…', humidity: 'Humidity', wind: 'Wind', feels: 'Feels like',
     ctaCheck: 'Check a leaf', ctaAsk: 'Ask a question', tryAsking: 'Try asking',
     statDiseases: 'Leaf conditions', statAccuracy: 'Test accuracy', statLanguages: 'Languages', statMandis: 'Mandis',
+    notSure: 'Not sure about this one',
+    notSureHelp: 'This may not be a tomato, potato or bell pepper leaf, or the photo is unclear. Retake it close up, in daylight, on a plain background.',
+    otherGuesses: 'Other possibilities', analyzedIn: 'Analyzed in', analyzeErr: 'Could not analyze the photo.',
+    copyBtn: 'Copy', copied: 'Copied', newChat: 'New chat',
+    chatErr: 'Sorry, I could not reach the server. Please try again.',
+    voiceUnsupported: 'Voice input is not supported in this browser. Try Chrome on Android or desktop.',
+    weatherErr: 'Could not load weather.', mandiErr: 'Could not load mandi prices.',
+    mandiEmpty: 'No prices for this market and crop today. Try another market or crop.',
+    variety: 'Variety', min: 'Min', max: 'Max', modal: 'Modal',
+    tipRain: 'Rain expected — hold off on spraying and fertiliser top-dressing.',
+    tipWind: 'Windy — spray drift is likely; spray early morning instead.',
+    tipHot: 'Hot day — irrigate in the evening to cut evaporation.',
+    tipHumid: 'Very humid — watch for fungal spots on leaves.',
+    tipCalm: 'Calm conditions — a good window for spraying or field work.',
+    offline: "You're offline. Saved pages still work; answers need a connection.",
+    installBtn: 'Install app', skipLink: 'Skip to content',
   },
 };
 // Hindi extras for the new UI strings
@@ -82,6 +100,22 @@ Object.assign(translations.hi, {
   analyzing: 'पत्ते को ध्यान से देखा जा रहा है…', humidity: 'नमी', wind: 'हवा', feels: 'महसूस',
   ctaCheck: 'पत्ता जाँचें', ctaAsk: 'सवाल पूछें', tryAsking: 'ये पूछकर देखें',
   statDiseases: 'पत्ते की स्थितियाँ', statAccuracy: 'टेस्ट सटीकता', statLanguages: 'भाषाएँ', statMandis: 'मंडियाँ',
+  notSure: 'पक्का नहीं कह सकते',
+  notSureHelp: 'यह शायद टमाटर, आलू या शिमला मिर्च का पत्ता नहीं है, या फ़ोटो साफ़ नहीं है। दिन की रोशनी में, सादे पीछे के साथ, पास से फिर फ़ोटो लें।',
+  otherGuesses: 'अन्य संभावनाएँ', analyzedIn: 'जाँच का समय', analyzeErr: 'फ़ोटो की जाँच नहीं हो पाई।',
+  copyBtn: 'कॉपी', copied: 'कॉपी हुआ', newChat: 'नई बातचीत',
+  chatErr: 'माफ़ कीजिए, सर्वर से संपर्क नहीं हो पाया। फिर कोशिश करें।',
+  voiceUnsupported: 'इस ब्राउज़र में आवाज़ से पूछना संभव नहीं है। Android या कंप्यूटर पर Chrome आज़माएँ।',
+  weatherErr: 'मौसम लोड नहीं हो पाया।', mandiErr: 'मंडी भाव लोड नहीं हो पाए।',
+  mandiEmpty: 'आज इस मंडी और फ़सल के भाव नहीं मिले। दूसरी मंडी या फ़सल चुनें।',
+  variety: 'किस्म', min: 'न्यूनतम', max: 'अधिकतम', modal: 'औसत',
+  tipRain: 'बारिश की संभावना — छिड़काव और खाद डालना अभी रोकें।',
+  tipWind: 'तेज़ हवा — दवा उड़ सकती है; सुबह जल्दी छिड़काव करें।',
+  tipHot: 'गर्म दिन — भाप कम करने के लिए शाम को सिंचाई करें।',
+  tipHumid: 'बहुत नमी — पत्तों पर फफूंद के धब्बों पर नज़र रखें।',
+  tipCalm: 'मौसम शांत है — छिड़काव या खेत के काम के लिए अच्छा समय।',
+  offline: 'आप ऑफ़लाइन हैं। सहेजे पेज चलेंगे; जवाब के लिए इंटरनेट चाहिए।',
+  installBtn: 'ऐप इंस्टॉल करें', skipLink: 'मुख्य भाग पर जाएँ',
 });
 
 const t = (key) => (translations[state.lang] && translations[state.lang][key]) || translations.en[key] || key;
@@ -102,7 +136,7 @@ async function api(path, options) {
   const res = await fetch(path, options);
   let data = null;
   try { data = await res.json(); } catch (_) { /* non-JSON */ }
-  if (!res.ok && !(data && (data.error || data.reply))) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok && !(data && data.reply)) throw new Error((data && data.error) || `HTTP ${res.status}`);
   return data || {};
 }
 
@@ -158,7 +192,7 @@ function setRecording(on) {
 
 function startVoice() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { addMessage('bot', 'Voice input is not supported in this browser. Try Chrome on Android or desktop.'); return; }
+  if (!SR) { addMessage('bot', t('voiceUnsupported')); return; }
   if (state.recognition && el.voiceBtn.classList.contains('btn--rec')) { stopVoice(); return; }
   const rec = new SR();
   rec.lang = state.lang === 'en' ? 'en-IN' : `${state.lang}-IN`;
@@ -201,10 +235,24 @@ function clearImage() {
   el.verdict.innerHTML = `<p class="verdict__empty">${esc(t('verdictEmpty'))}</p>`;
 }
 
+// Shrink big phone photos before upload: the model only sees 224 px, and 4G uploads are slow.
+async function downscale(file, max = 1024) {
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    if (scale === 1 && file.size < 1.5e6) return file;
+    const c = document.createElement('canvas');
+    c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9));
+    return blob ? new File([blob], 'leaf.jpg', { type: 'image/jpeg' }) : file;
+  } catch (_) { return file; }
+}
+
 async function analyze() {
   if (!state.file) return;
   const fd = new FormData();
-  fd.append('image', state.file);
+  fd.append('image', await downscale(state.file));
   fd.append('lang', state.lang);
   el.analyzeBtn.disabled = true;
   el.verdict.innerHTML = `<p class="verdict__empty">${esc(t('analyzing'))}</p>${skeleton}`;
@@ -213,21 +261,31 @@ async function analyze() {
     if (!data.class) throw new Error(data.error || 'No result');
     const d = prettyDisease(data.class);
     const pct = Math.round((data.confidence || 0) * 100);
+    const unsure = data.confident === false;
+    const others = (data.top || []).slice(1).filter((x) => x.confidence >= 0.03);
+    const badge = unsure
+      ? `<span class="badge badge--warn">${icon('alert')}${esc(t('notSure'))}</span>`
+      : `<span class="badge ${d.healthy ? 'badge--ok' : ''}">${icon(d.healthy ? 'check' : 'alert')}${esc(d.healthy ? t('healthy') : t('diseased'))}</span>`;
     el.verdict.innerHTML = `
       <div class="verdict__top">
         <span class="verdict__crop">${esc(d.crop)}</span>
-        <span class="badge ${d.healthy ? 'badge--ok' : ''}">${icon(d.healthy ? 'check' : 'alert')}${esc(d.healthy ? t('healthy') : t('diseased'))}</span>
+        ${badge}
       </div>
       <div class="verdict__name">${esc(d.healthy ? t('healthy') : d.name)}</div>
+      ${unsure ? `<p class="note note--warn">${esc(t('notSureHelp'))}</p>` : ''}
       <div class="meter ${pct < 60 ? 'meter--low' : ''}" role="img" aria-label="${pct}%">${
         Array.from({ length: 10 }, (_, i) => `<i class="${i < Math.round(pct / 10) ? 'on' : ''}" style="animation-delay:${i * 60}ms"></i>`).join('')
       }</div>
-      <div class="meter__label">${pct}% ${esc(t('confidence'))}</div>
+      <div class="meter__label">${pct}% ${esc(t('confidence'))}${data.inference_ms != null ? ` · ${esc(t('analyzedIn'))} ${data.inference_ms} ms` : ''}</div>
+      ${others.length ? `<div class="alts"><h3>${esc(t('otherGuesses'))}</h3>${others.map((o) => {
+        const od = prettyDisease(o.class); const op = Math.round(o.confidence * 100);
+        return `<div class="alt"><span>${esc(od.crop)} · ${esc(od.healthy ? t('healthy') : od.name)}</span><b>${op}%</b><i style="--w:${op}%"></i></div>`;
+      }).join('')}</div>` : ''}
       <div class="verdict__remedy"><h3>${esc(t('remedy'))}</h3><p id="remedyText">${esc(data.remedy)}</p></div>
       <div class="verdict__foot"><button class="btn btn--ghost btn--sm" id="listenRemedy">${icon('speaker')}<span>${esc(t('listenBtn'))}</span></button></div>`;
     $('listenRemedy').addEventListener('click', () => speakOut(`${d.healthy ? t('healthy') : d.name}. ${data.remedy}`));
   } catch (e) {
-    el.verdict.innerHTML = `<p class="note note--err">Could not analyze the photo: ${esc(e.message)}</p>`;
+    el.verdict.innerHTML = `<p class="note note--err">${esc(t('analyzeErr'))} ${esc(e.message)}</p>`;
   } finally {
     el.analyzeBtn.disabled = !state.file;
   }
@@ -251,8 +309,16 @@ function finishBotMessage(wrap, text) {
   wrap.firstElementChild.textContent = text;
   const meta = document.createElement('div');
   meta.className = 'msg__meta';
-  meta.innerHTML = `<span>KrishiVaani</span><button type="button">${icon('speaker')}${esc(t('listenBtn'))}</button>`;
-  meta.querySelector('button').addEventListener('click', () => speakOut(text));
+  meta.innerHTML = `<span>KrishiVaani</span>
+    <button type="button" data-act="listen">${icon('speaker')}${esc(t('listenBtn'))}</button>
+    <button type="button" data-act="copy">${icon('copy')}<span>${esc(t('copyBtn'))}</span></button>`;
+  meta.querySelector('[data-act="listen"]').addEventListener('click', () => speakOut(text));
+  meta.querySelector('[data-act="copy"]').addEventListener('click', async (e) => {
+    const label = e.currentTarget.querySelector('span');
+    try { await navigator.clipboard.writeText(text); label.textContent = t('copied'); }
+    catch (_) { /* clipboard blocked */ }
+    setTimeout(() => { label.textContent = t('copyBtn'); }, 1500);
+  });
   wrap.appendChild(meta);
   el.thread.scrollTop = el.thread.scrollHeight;
 }
@@ -267,22 +333,26 @@ async function sendQuery(evt) {
   try {
     const data = await api('/api/chat', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, lang: state.lang, lat: state.lat, lon: state.lon, mandi: state.mandiText }),
+      body: JSON.stringify({
+        query, lang: state.lang, lat: state.lat, lon: state.lon, mandi: state.mandiText, history: state.history.slice(-6),
+      }),
     });
-    finishBotMessage(pending, (data.reply || 'No reply.').trim());
+    const reply = (data.reply || 'No reply.').trim();
+    finishBotMessage(pending, reply);
+    state.history.push({ role: 'user', text: query }, { role: 'bot', text: reply });
   } catch (e) {
-    finishBotMessage(pending, 'Sorry, I could not reach the server. Please try again.');
+    finishBotMessage(pending, t('chatErr'));
   }
 }
 
 // ---------------- weather ----------------
 function farmTip(w) {
   const desc = (w.description || '').toLowerCase();
-  if (/rain|drizzle|thunder/.test(desc)) return 'Rain expected — hold off on spraying and fertiliser top-dressing.';
-  if (w.wind_kmh != null && w.wind_kmh > 15) return 'Windy — spray drift is likely; spray early morning instead.';
-  if (w.temp != null && w.temp >= 35) return 'Hot day — irrigate in the evening to cut evaporation.';
-  if (w.humidity != null && w.humidity >= 85) return 'Very humid — watch for fungal spots on leaves.';
-  return 'Calm conditions — a good window for spraying or field work.';
+  if (/rain|drizzle|thunder/.test(desc)) return t('tipRain');
+  if (w.wind_kmh != null && w.wind_kmh > 15) return t('tipWind');
+  if (w.temp != null && w.temp >= 35) return t('tipHot');
+  if (w.humidity != null && w.humidity >= 85) return t('tipHumid');
+  return t('tipCalm');
 }
 
 function renderWeather(w) {
@@ -314,7 +384,7 @@ async function fetchWeather() {
   el.weather.innerHTML = skeleton;
   const qs = state.lat != null ? `?lat=${state.lat}&lon=${state.lon}` : '';
   try { renderWeather(await api('/api/weather' + qs)); }
-  catch (e) { el.weather.innerHTML = '<p class="note note--err">Could not load weather.</p>'; }
+  catch (e) { el.weather.innerHTML = `<p class="note note--err">${esc(t('weatherErr'))}</p>`; }
 }
 
 function locateAndFetchWeather() {
@@ -337,31 +407,36 @@ function rangeBar(r) {
   return `<span class="range" aria-hidden="true"><b style="left:calc(${pos}% - 3px)"></b></span>`;
 }
 
+function renderMandi(data) {
+  state.lastMandi = data;
+  const rows = Array.isArray(data.records) ? data.records : [];
+  if (!rows.length) {
+    el.mandi.innerHTML = `<p class="note">${esc(t('mandiEmpty'))}</p>`;
+    return;
+  }
+  el.mandi.innerHTML = `
+    <table class="prices">
+      <thead><tr><th>${esc(t('variety'))}</th><th class="num">${esc(t('min'))}</th><th class="num">${esc(t('max'))}</th><th class="num">${esc(t('modal'))}</th></tr></thead>
+      <tbody>${rows.map((r) => `
+        <tr>
+          <td>${esc(r.variety || r.commodity)}<small>${esc(r.market)} · ${esc(r.arrival_date)}</small>${rangeBar(r)}</td>
+          <td class="num">${fmtINR(r.min_price)}</td>
+          <td class="num">${fmtINR(r.max_price)}</td>
+          <td class="num modal">${fmtINR(r.modal_price)}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
 async function fetchMandi() {
   el.mandi.innerHTML = skeleton;
   const params = new URLSearchParams({ market: el.market.value, commodity: el.commodity.value });
   try {
     const data = await api('/api/mandi?' + params);
     state.mandiText = data.prices || '';
-    const rows = Array.isArray(data.records) ? data.records : [];
-    if (!rows.length) {
-      el.mandi.innerHTML = `<p class="note">${esc(data.prices || 'No mandi price data found.')}<br>Try another market or crop.</p>`;
-      return;
-    }
-    el.mandi.innerHTML = `
-      <table class="prices">
-        <thead><tr><th>Variety</th><th class="num">Min</th><th class="num">Max</th><th class="num">Modal</th></tr></thead>
-        <tbody>${rows.map((r) => `
-          <tr>
-            <td>${esc(r.variety || r.commodity)}<small>${esc(r.market)} · ${esc(r.arrival_date)}</small>${rangeBar(r)}</td>
-            <td class="num">${fmtINR(r.min_price)}</td>
-            <td class="num">${fmtINR(r.max_price)}</td>
-            <td class="num modal">${fmtINR(r.modal_price)}</td>
-          </tr>`).join('')}
-        </tbody>
-      </table>`;
+    renderMandi(data);
   } catch (e) {
-    el.mandi.innerHTML = '<p class="note note--err">Could not load mandi prices.</p>';
+    el.mandi.innerHTML = `<p class="note note--err">${esc(t('mandiErr'))}</p>`;
   }
 }
 
@@ -392,7 +467,34 @@ el.lang.addEventListener('change', () => {
   localStorage.setItem('kv-lang', state.lang);
   translateUI();
   if (state.lastWeather) renderWeather(state.lastWeather);
+  if (state.lastMandi) renderMandi(state.lastMandi);
 });
+
+// ---------------- app shell: offline banner, install, service worker ----------------
+const offlineBar = $('offlineBar');
+const syncOnline = () => { offlineBar.hidden = navigator.onLine; };
+window.addEventListener('online', syncOnline);
+window.addEventListener('offline', syncOnline);
+syncOnline();
+
+const installBtn = $('installBtn');
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  state.installPrompt = e;
+  installBtn.hidden = false;
+});
+installBtn.addEventListener('click', async () => {
+  if (!state.installPrompt) return;
+  state.installPrompt.prompt();
+  await state.installPrompt.userChoice;
+  state.installPrompt = null;
+  installBtn.hidden = true;
+});
+window.addEventListener('appinstalled', () => { installBtn.hidden = true; });
+
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+}
 
 translateUI();
 locateAndFetchWeather();

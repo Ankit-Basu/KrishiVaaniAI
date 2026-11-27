@@ -9,6 +9,7 @@
 Photograph a sick leaf, ask a question by voice, and check today's weather and mandi prices,
 in any of 13 Indian languages.
 
+[![CI](https://github.com/Ankit-Basu/KrishiVaaniAI/actions/workflows/ci.yml/badge.svg)](https://github.com/Ankit-Basu/KrishiVaaniAI/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
 ![Flask](https://img.shields.io/badge/Flask-3.1-000000?logo=flask)
@@ -32,14 +33,24 @@ Most advisory apps are English-first, heavy on data, or ignore local context.
 
 | | Feature | How |
 |---|---|---|
-| 🍃 | **Leaf check** — snap a leaf, get the disease and what to do | MobileNetV2 fine-tuned on PlantVillage, runs on CPU in ~300 ms |
-| 💬 | **Ask anything** — by typing or speaking | Google Gemini, with your local weather and mandi prices as context |
+| 🍃 | **Leaf check** — snap a leaf, get the disease and what to do | MobileNetV2 fine-tuned on PlantVillage, ~50 ms per photo on CPU; shows the top 3 guesses and warns when it isn't sure |
+| 💬 | **Ask anything** — by typing or speaking, with follow-up questions | Google Gemini, with your local weather, mandi prices and the last few turns as context |
 | 🗣️ | **Hear the answer** | Browser speech, with a gTTS fallback on the server |
 | 🌦️ | **Weather near you** — plus a spray/irrigation tip | OpenWeatherMap + browser geolocation |
 | 💰 | **Mandi prices** — min / max / modal ₹ per quintal | AGMARKNET via data.gov.in, 50+ markets, 70+ crops |
 | 🌐 | **13 languages** | English, हिन्दी, বাংলা, தமிழ், తెలుగు, मराठी, ગુજરાતી, ಕನ್ನಡ, മലയാളം, ਪੰਜਾਬੀ, اردو, ଓଡ଼ିଆ, অসমীয়া |
+| 📲 | **Installable, works offline** | PWA manifest + service worker: the app opens with no signal and shows an offline banner |
 
-The UI is a pixel-art interface built with plain HTML/CSS/JS (no build step): pixel fonts and hand-drawn 12×12 pixel icons for the chrome, a readable body font that covers every Indic script, mobile-first layout, and it remembers the farmer's language.
+The UI is a pixel-art interface built with plain HTML/CSS/JS (no build step): pixel fonts and hand-drawn 12×12 pixel icons for the chrome, a readable body font that covers every Indic script, mobile-first layout, and it remembers the farmer's language. Phone photos are shrunk in the browser before upload, so checks stay quick on slow connections.
+
+## Engineering notes
+
+- **One deployable.** Flask serves the static site and the API, so one Docker image runs everything (Hugging Face Spaces, free).
+- **Fast and frugal.** CPU-only PyTorch; weather cached 10 min per ~1 km cell, mandi prices 30 min, translated remedies 24 h. This cuts latency and keeps free API quotas intact.
+- **Abuse protection.** Per-IP rate limit on the Gemini-backed endpoints (`RATE_LIMIT_PER_MIN`), input length caps, a 16 MB upload limit, language codes validated against an allow-list.
+- **Safe by default.** The static route can't serve `.env` or source files. Errors never echo upstream exceptions (they can contain API keys), and `/healthz` reports only *whether* keys are set.
+- **Honest ML.** Below 60% confidence the UI says "Not sure", explains why and shows the alternatives instead of guessing.
+- **Tested.** 22 pytest tests with all external APIs mocked; GitHub Actions runs them, then builds the Docker image and checks `/healthz`.
 
 ## Screenshots
 
@@ -50,6 +61,8 @@ The UI is a pixel-art interface built with plain HTML/CSS/JS (no build step): pi
 | Weather and mandi prices | Mobile, in Hindi |
 |---|---|
 | ![Weather card with farming tip and mandi price table](docs/screenshots/weather-mandi.png) | <img src="docs/screenshots/mobile-hindi.png" width="300" alt="Mobile layout in Hindi" /> |
+
+<sub>Screenshots use sample weather, mandi and chat data.</sub>
 
 ## How it works
 
@@ -77,14 +90,19 @@ KrishiVaaniAI/
 ├── web/                   # the website (static, no build step)
 │   ├── index.html
 │   ├── main.js            # UI logic, i18n, voice, API calls
+│   ├── sw.js              # service worker: offline shell, never caches /api
+│   ├── manifest.webmanifest
 │   ├── css/style.css
-│   └── images/
+│   └── images/            # hero art, app icons, social preview
+├── tests/test_app.py      # pytest suite, external APIs mocked
+├── .github/workflows/ci.yml  # tests + Docker build on every push
 ├── training/
 │   ├── train_mobilenetv2_leaf_disease.ipynb
 │   └── split_train_val.py # 80/20 train/val split helper
 ├── scripts/
 │   └── smoke_test.py      # checks a running server end to end
 ├── requirements.txt       # includes CPU-only PyTorch
+├── requirements-dev.txt   # + pytest
 ├── Dockerfile             # Hugging Face Spaces / any Docker host
 ├── render.yaml            # Render blueprint
 ├── netlify.toml           # Netlify: static site + /api proxy
@@ -113,6 +131,13 @@ Open http://localhost:5000. To check every endpoint at once:
 python scripts/smoke_test.py http://localhost:5000 path/to/leaf.jpg
 ```
 
+Run the test suite (no API keys or network needed):
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest -q
+```
+
 ### Environment variables
 
 | Name | Required | Purpose |
@@ -123,17 +148,20 @@ python scripts/smoke_test.py http://localhost:5000 path/to/leaf.jpg
 | `GEMINI_MODEL` | no | Defaults to `gemini-2.5-flash` |
 | `PORT` | no | Defaults to `5000` |
 | `FLASK_DEBUG` | no | Set to `1` for auto-reload while developing |
+| `RATE_LIMIT_PER_MIN` | no | Requests per minute per IP for analyze/chat/tts. Defaults to `30`; `0` turns it off |
 
 ## API
 
 | Method | Path | Body / query | Returns |
 |---|---|---|---|
-| `POST` | `/api/analyze` | form-data `image`, `lang` | `class`, `confidence`, `remedy` |
-| `POST` | `/api/chat` | JSON `query`, `lang`, `lat`, `lon`, `mandi` | `reply` |
+| `POST` | `/api/analyze` | form-data `image`, `lang` | `class`, `confidence`, `confident`, `top[3]`, `remedy`, `inference_ms` |
+| `POST` | `/api/chat` | JSON `query`, `lang`, `lat`, `lon`, `mandi`, `history[]` | `reply` |
 | `GET` | `/api/weather` | `lat`&`lon` or `city` | `temp`, `description`, `humidity`, `wind_kmh`, … |
 | `GET` | `/api/mandi` | `market`, `commodity` | `records[]` with min/max/modal price |
 | `POST` | `/api/tts` | JSON `text`, `lang` | `audio` (base64 MP3) |
-| `GET` | `/healthz` | — | `{ "ok": true }` |
+| `GET` | `/healthz` | — | `ok`, model info, which keys are `configured` (booleans) |
+
+Analyze, chat and TTS return `429` when the per-IP rate limit is hit.
 
 ## Deploy for free
 
@@ -152,7 +180,7 @@ Training notebook: [training/train_mobilenetv2_leaf_disease.ipynb](training/trai
 | Training | 5 epochs, batch 32, Adam (lr 1e-4) |
 | Test accuracy | **99.44%** on 4,134 images |
 | Macro precision / recall / F1 | 99.51% / 99.48% / 99.49% |
-| Size / speed | 9.2 MB, ~300 ms per image on CPU |
+| Size / speed | 9.2 MB, ~50 ms per image on a laptop CPU |
 
 <details>
 <summary>Per-class results</summary>
@@ -182,7 +210,8 @@ Photos of a single leaf, close up, in daylight work best.
 
 ## Roadmap
 
-- [ ] Installable PWA with offline caching
+- [x] Installable PWA with offline app shell
+- [ ] Queue leaf checks taken offline and run them when back online
 - [ ] More crops (rice, wheat, cotton) trained on field photos
 - [ ] Multi-day forecast and rainfall alerts
 - [ ] WhatsApp / SMS bot for feature phones
@@ -191,7 +220,7 @@ Photos of a single leaf, close up, in daylight work best.
 ## Contributing
 
 Pull requests are welcome. For larger changes, open an issue first to discuss what you'd like to change.
-Run `python scripts/smoke_test.py` against your local server before submitting.
+Run `python -m pytest -q` (and `python scripts/smoke_test.py` against your local server) before submitting.
 
 ## Credits
 

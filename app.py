@@ -1,16 +1,22 @@
 """KrishiVaani AI — Flask backend.
 
 Serves the static site in web/ and these JSON endpoints:
-  POST /api/analyze  leaf photo -> disease class, confidence, remedy
-  POST /api/chat     farmer question -> Gemini answer (uses weather + mandi context)
-  GET  /api/weather  current weather by lat/lon or city
-  GET  /api/mandi    AGMARKNET prices for a market + commodity
+  POST /api/analyze  leaf photo -> disease class, confidence, top-3, remedy
+  POST /api/chat     farmer question (+ recent turns) -> Gemini answer, grounded in weather + mandi prices
+  GET  /api/weather  current weather by lat/lon or city (cached 10 min)
+  GET  /api/mandi    AGMARKNET prices for a market + commodity (cached 30 min)
   POST /api/tts      text -> base64 MP3 (gTTS), used when the browser has no voice
+  GET  /healthz      liveness + which API keys are configured
 """
 import base64
 import io
 import json
+import mimetypes
 import os
+import threading
+import time
+from collections import defaultdict, deque
+from functools import wraps
 
 import requests
 import torch
@@ -26,11 +32,16 @@ WEB_DIR = os.path.join(BASE_DIR, 'web')
 MODEL_DIR = os.path.join(BASE_DIR, 'model')
 
 load_dotenv(os.path.join(BASE_DIR, '.env'))
+mimetypes.add_type('application/manifest+json', '.webmanifest')
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.5-flash')
 OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
 MANDI_API_KEY = os.getenv('MANDI_API_KEY')
+RATE_LIMIT_PER_MIN = int(os.getenv('RATE_LIMIT_PER_MIN', '30'))  # per IP, per endpoint; 0 disables
+
+LOW_CONFIDENCE = 0.6  # below this the UI warns that the photo may not be a supported leaf
+SUPPORTED_LANGS = {'en', 'hi', 'bn', 'ta', 'te', 'mr', 'gu', 'kn', 'ml', 'pa', 'ur', 'or', 'as'}
 
 OPENWEATHER_URL = 'https://api.openweathermap.org/data/2.5/weather'
 MANDI_URL = 'https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070'
@@ -63,14 +74,14 @@ preprocess = transforms.Compose([
 ])
 
 
-def predict_image(image_bytes):
-    """Return (class_name, confidence 0..1) for a leaf photo."""
+def predict_image(image_bytes, k=3):
+    """Return the top-k [(class_name, probability 0..1), ...] for a leaf photo, best first."""
     image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
     with torch.no_grad():
         logits = model(preprocess(image).unsqueeze(0))
     probs = torch.nn.functional.softmax(logits[0], dim=0)
-    conf, idx = probs.max(0)
-    return idx_to_class[idx.item()], float(conf.item())
+    top = torch.topk(probs, k=min(k, len(idx_to_class)))
+    return [(idx_to_class[i.item()], float(p.item())) for p, i in zip(top.values, top.indices)]
 
 
 # Field-level remedies for the model's 15 classes (PlantVillage subset)
@@ -94,6 +105,72 @@ REMEDY_MAP = {
 
 
 # ---------------------------------------------------------------------------
+# Small in-process helpers: TTL cache and per-IP rate limit (no extra services needed)
+# ---------------------------------------------------------------------------
+class TTLCache:
+    """Thread-safe dict whose entries expire after `ttl` seconds."""
+
+    def __init__(self, ttl, maxsize=512):
+        self.ttl, self.maxsize = ttl, maxsize
+        self._data, self._lock = {}, threading.Lock()
+
+    def get(self, key):
+        with self._lock:
+            hit = self._data.get(key)
+            if hit and hit[0] > time.monotonic():
+                return hit[1]
+            self._data.pop(key, None)
+            return None
+
+    def set(self, key, value):
+        with self._lock:
+            if len(self._data) >= self.maxsize:
+                self._data.clear()
+            self._data[key] = (time.monotonic() + self.ttl, value)
+
+    def clear(self):
+        with self._lock:
+            self._data.clear()
+
+
+weather_cache = TTLCache(ttl=600)          # 10 min
+mandi_cache = TTLCache(ttl=1800)           # 30 min; AGMARKNET updates daily
+translation_cache = TTLCache(ttl=86400)    # remedy texts are fixed
+
+_hits = defaultdict(deque)
+_hits_lock = threading.Lock()
+
+
+def client_ip():
+    # Hugging Face / Render sit behind a proxy that sets X-Forwarded-For
+    return (request.headers.get('X-Forwarded-For') or request.remote_addr or '?').split(',')[0].strip()
+
+
+def rate_limited(fn):
+    """Allow RATE_LIMIT_PER_MIN calls per minute per client IP; protects the free API quotas."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if RATE_LIMIT_PER_MIN > 0:
+            now = time.monotonic()
+            with _hits_lock:
+                if len(_hits) > 10000:
+                    _hits.clear()
+                q = _hits[(fn.__name__, client_ip())]
+                while q and now - q[0] > 60:
+                    q.popleft()
+                if len(q) >= RATE_LIMIT_PER_MIN:
+                    return jsonify({'error': 'rate_limited',
+                                    'reply': 'Too many requests. Please wait a minute and try again.'}), 429
+                q.append(now)
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def clean_lang(value):
+    return value if value in SUPPORTED_LANGS else 'en'
+
+
+# ---------------------------------------------------------------------------
 # External services
 # ---------------------------------------------------------------------------
 def gemini(prompt, timeout=30, **generation_config):
@@ -111,12 +188,17 @@ def translate_text(text, target_lang):
     """Translate advice into target_lang (ISO code); returns the original on failure."""
     if target_lang == 'en' or not text:
         return text
+    cached = translation_cache.get((text, target_lang))
+    if cached:
+        return cached
     try:
-        return gemini(
+        out = gemini(
             f'Translate the following agricultural advice into the language with ISO code "{target_lang}". '
             f'Keep scientific names and pesticide ingredient names untranslated. Reply with the translation only.\n\n{text}',
             timeout=15,
         )
+        translation_cache.set((text, target_lang), out)
+        return out
     except Exception:
         return text
 
@@ -134,18 +216,24 @@ def generate_remedy(disease_name, lang='en'):
 
 
 def get_weather(lat=None, lon=None, city=None):
-    """Return a dict with current weather; defaults to Delhi."""
-    if lat and lon:
-        params = {'lat': lat, 'lon': lon}
-    else:
-        params = {'q': city or 'Delhi'}
+    """Return a dict with current weather (cached 10 min); defaults to Delhi. Raises on failure."""
+    try:
+        params = {'lat': round(float(lat), 2), 'lon': round(float(lon), 2)}  # ~1 km, better cache hits
+    except (TypeError, ValueError):
+        params = {'q': (city or 'Delhi')[:80]}
+    key = tuple(sorted(params.items()))
+    cached = weather_cache.get(key)
+    if cached:
+        return cached
     params.update(appid=OPENWEATHER_API_KEY, units='metric')
-    data = requests.get(OPENWEATHER_URL, params=params, timeout=10).json()
+    resp = requests.get(OPENWEATHER_URL, params=params, timeout=10)
+    resp.raise_for_status()
+    data = resp.json()
     city_name = data.get('name') or city or 'your area'
     desc = data['weather'][0]['description']
     temp = data['main']['temp']
     wind_ms = (data.get('wind') or {}).get('speed')
-    return {
+    result = {
         'weather': f'{desc.capitalize()}, {temp}°C in {city_name}.',
         'city': city_name,
         'description': desc,
@@ -155,6 +243,29 @@ def get_weather(lat=None, lon=None, city=None):
         'wind_kmh': round(wind_ms * 3.6, 1) if wind_ms is not None else None,
         'icon': data['weather'][0].get('icon'),
     }
+    weather_cache.set(key, result)
+    return result
+
+
+MANDI_FIELDS = ('commodity', 'variety', 'market', 'district', 'state', 'arrival_date',
+                'min_price', 'max_price', 'modal_price')
+
+
+def get_mandi(market, commodity):
+    """Return slimmed AGMARKNET records (cached 30 min). Raises on failure."""
+    key = (market, commodity)
+    cached = mandi_cache.get(key)
+    if cached is not None:
+        return cached
+    params = {
+        'api-key': MANDI_API_KEY, 'format': 'json', 'limit': 5,
+        'filters[market]': market, 'filters[commodity]': commodity,
+    }
+    resp = requests.get(MANDI_URL, params=params, timeout=15)
+    resp.raise_for_status()
+    records = [{k: rec.get(k) for k in MANDI_FIELDS} for rec in resp.json().get('records', [])]
+    mandi_cache.set(key, records)
+    return records
 
 
 # ---------------------------------------------------------------------------
@@ -165,10 +276,34 @@ CORS(app)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB uploads
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 3600
 
+NO_CACHE_FILES = {'index.html', 'sw.js', 'manifest.webmanifest'}
+
+
+@app.after_request
+def security_headers(resp):
+    resp.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    resp.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    if request.path.startswith('/api/'):
+        resp.headers.setdefault('Cache-Control', 'no-store')
+    return resp
+
+
+@app.errorhandler(413)
+def too_large(_):
+    return jsonify({'error': 'That file is too large (16 MB max).'}), 413
+
 
 @app.route('/healthz')
 def healthz():
-    return jsonify({'ok': True})
+    return jsonify({
+        'ok': True,
+        'model': {'arch': 'mobilenet_v2', 'classes': len(idx_to_class)},
+        'configured': {  # booleans only, never the keys
+            'gemini': bool(GEMINI_API_KEY),
+            'openweather': bool(OPENWEATHER_API_KEY),
+            'mandi': bool(MANDI_API_KEY),
+        },
+    })
 
 
 @app.route('/')
@@ -178,31 +313,44 @@ def site(path='index.html'):
     send_from_directory refuses paths outside web/, so .env and source stay private."""
     if path.startswith('api/'):
         return jsonify({'error': 'not found'}), 404
-    if os.path.isfile(os.path.join(WEB_DIR, path)):
-        return send_from_directory(WEB_DIR, path)
-    return send_from_directory(WEB_DIR, 'index.html')
+    if not os.path.isfile(os.path.join(WEB_DIR, path)):
+        path = 'index.html'
+    # HTML and the service worker must revalidate so new deploys show up immediately
+    return send_from_directory(WEB_DIR, path, max_age=0 if path in NO_CACHE_FILES else None)
 
 
 # ---------------------------------------------------------------------------
 # API
 # ---------------------------------------------------------------------------
 @app.route('/api/analyze', methods=['POST'])
+@rate_limited
 def analyze():
     if 'image' not in request.files:
         return jsonify({'error': 'No image uploaded'}), 400
-    lang = request.form.get('lang', 'en')
+    lang = clean_lang(request.form.get('lang', 'en'))
+    started = time.perf_counter()
     try:
-        predicted_class, confidence = predict_image(request.files['image'].read())
-    except Exception as e:
-        return jsonify({'error': f'Could not read image: {e}'}), 400
+        top = predict_image(request.files['image'].read())
+    except Exception:
+        return jsonify({'error': 'Could not read that file as an image.'}), 400
+    elapsed_ms = round((time.perf_counter() - started) * 1000)
 
+    predicted_class, confidence = top[0]
     remedy = REMEDY_MAP.get(predicted_class)
     remedy = translate_text(remedy, lang) if remedy else generate_remedy(predicted_class, lang)
-    return jsonify({'class': predicted_class, 'confidence': confidence, 'remedy': remedy, 'lang': lang})
+    return jsonify({
+        'class': predicted_class,
+        'confidence': confidence,
+        'confident': confidence >= LOW_CONFIDENCE,
+        'top': [{'class': c, 'confidence': p} for c, p in top],
+        'remedy': remedy,
+        'lang': lang,
+        'inference_ms': elapsed_ms,
+    })
 
 
 @app.route('/api/weather', methods=['GET'])
-def weather():
+def weather():  # cached, so not rate limited
     try:
         return jsonify(get_weather(request.args.get('lat'), request.args.get('lon'), request.args.get('city')))
     except Exception:
@@ -212,36 +360,27 @@ def weather():
 
 @app.route('/api/mandi', methods=['GET'])
 def mandi():
-    market = request.args.get('market', 'DELHI').upper()
-    commodity = request.args.get('commodity', 'Wheat').capitalize()
-    params = {
-        'api-key': MANDI_API_KEY, 'format': 'json', 'limit': 5,
-        'filters[market]': market, 'filters[commodity]': commodity,
-    }
+    market = request.args.get('market', 'DELHI').strip().upper()[:60]
+    commodity = request.args.get('commodity', 'Wheat').strip().capitalize()[:60]
     try:
-        resp = requests.get(MANDI_URL, params=params, timeout=15)
-        if resp.status_code != 200:
-            return jsonify({'prices': 'No data', 'records': []})
-        records = resp.json().get('records', [])
-        if not records:
-            return jsonify({'prices': 'No mandi price data found.', 'records': []})
-        keep = ('commodity', 'variety', 'market', 'district', 'state', 'arrival_date',
-                'min_price', 'max_price', 'modal_price')
-        slim = [{k: rec.get(k) for k in keep} for rec in records]
-        text = '\n'.join(
-            f"{r['commodity']} in {r['market']} ({r['state']}): {r['modal_price']} ₹/quintal on {r['arrival_date']}"
-            for r in slim
-        )
-        return jsonify({'prices': text, 'records': slim})
+        records = get_mandi(market, commodity)
     except Exception:
         app.logger.exception('mandi lookup failed')
         return jsonify({'prices': 'Mandi prices unavailable right now.', 'records': []})
+    if not records:
+        return jsonify({'prices': 'No mandi price data found.', 'records': []})
+    text = '\n'.join(
+        f"{r['commodity']} in {r['market']} ({r['state']}): {r['modal_price']} ₹/quintal on {r['arrival_date']}"
+        for r in records
+    )
+    return jsonify({'prices': text, 'records': records})
 
 
 @app.route('/api/tts', methods=['POST'])
+@rate_limited
 def tts():
     data = request.get_json(silent=True) or {}
-    text, lang = data.get('text', ''), data.get('lang', 'en')
+    text, lang = str(data.get('text', ''))[:1500], clean_lang(data.get('lang', 'en'))
     if not text:
         return jsonify({'error': 'No text'}), 400
     try:
@@ -250,8 +389,9 @@ def tts():
         return jsonify({'audio': base64.b64encode(fp.getvalue()).decode('utf-8')})
     except ValueError:
         return jsonify({'error': 'unsupported_lang'}), 400
-    except Exception as e:
-        return jsonify({'error': str(e)}), 502
+    except Exception:
+        app.logger.exception('tts failed')
+        return jsonify({'error': 'tts_unavailable'}), 502
 
 
 CHAT_PROMPT = """You are KrishiVaani AI, an Indian agriculture assistant.
@@ -261,6 +401,9 @@ CHAT_PROMPT = """You are KrishiVaani AI, an Indian agriculture assistant.
 Weather: {weather}
 MandiPrices: {mandi}
 PreferredLanguage: {lang}
+
+### ConversationSoFar
+{history}
 
 ### FarmerQuestion
 {query}
@@ -273,18 +416,33 @@ PreferredLanguage: {lang}
 """
 
 
+def format_history(history, max_turns=6):
+    """Last few chat turns as plain text, so follow-up questions keep their context."""
+    if not isinstance(history, list):
+        return '(none)'
+    lines = []
+    for turn in history[-max_turns:]:
+        if isinstance(turn, dict) and turn.get('text'):
+            who = 'Farmer' if turn.get('role') == 'user' else 'KrishiVaani'
+            lines.append(f"{who}: {str(turn['text'])[:600]}")
+    return '\n'.join(lines) or '(none)'
+
+
 @app.route('/api/chat', methods=['POST'])
+@rate_limited
 def chat():
     data = request.get_json(silent=True) or {}
-    query = (data.get('query') or '').strip()
+    query = str(data.get('query') or '').strip()[:1000]
     if not query:
         return jsonify({'reply': 'Please type a question.'}), 400
     try:
         weather_context = 'Current weather: ' + get_weather(data.get('lat'), data.get('lon'))['weather']
     except Exception:
         weather_context = 'Weather data unavailable.'
-    prompt = CHAT_PROMPT.format(weather=weather_context, mandi=data.get('mandi', ''),
-                                lang=data.get('lang', 'en'), query=query)
+    prompt = CHAT_PROMPT.format(
+        weather=weather_context, mandi=str(data.get('mandi', ''))[:2000],
+        lang=clean_lang(data.get('lang', 'en')), history=format_history(data.get('history')), query=query,
+    )
     try:
         return jsonify({'reply': gemini(prompt)})
     except Exception:

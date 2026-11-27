@@ -6,3 +6,6 @@ __pycache__
 training
 scripts
 *.md
+tests
+.github
+docs

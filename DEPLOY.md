@@ -34,6 +34,11 @@ Optional: `GEMINI_MODEL` (default `gemini-2.5-flash`) if Google renames/retires 
    ```
 
 6. The Space builds automatically (≈5 min). Your app is live at `https://<user>-krishivaani.hf.space`.
+7. Open `https://<user>-krishivaani.hf.space/healthz`. All three `configured` values should be `true`;
+   a `false` means that secret is missing or misspelled. (Restart the Space after changing secrets.)
+
+Share the direct `*.hf.space` link, not the `huggingface.co/spaces/...` page: that page shows the app inside an
+iframe, where browsers may block the microphone, location and "Install app".
 
 Prefer git? Clone the Space, copy the same files in, then (binary files must go through LFS on HF):
 
@@ -71,5 +76,14 @@ See [README.md](README.md#run-it-locally).
 ## Check a deployment
 
 ```bash
-python scripts/smoke_test.py https://<user>-krishivaani.hf.space
+python scripts/smoke_test.py https://<user>-krishivaani.hf.space path/to/leaf.jpg
 ```
+
+## Before a demo
+
+- Open the site a few minutes early: a sleeping free Space takes ~30 s to wake up.
+- Keep 2–3 real tomato / potato / pepper leaf photos on your phone. PlantVillage-style photos (one leaf,
+  plain background) give the most confident results; anything else shows the "Not sure" warning, by design.
+- Try one question in Hindi (or another language) and tap **Listen** to show voice output.
+- On Android Chrome, use **Install app** to show it running as an installed app.
+- `RATE_LIMIT_PER_MIN` (default 30 per IP per endpoint) protects your free Gemini quota if the link is shared.

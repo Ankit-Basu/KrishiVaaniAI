@@ -6,7 +6,14 @@
   <title>KrishiVaani AI — Farm advice in your language</title>
   <meta name="description" content="Check crop leaf diseases from a photo, ask farming questions by voice in 13 Indian languages, and see live weather and mandi prices.">
   <meta name="theme-color" content="#17241b">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="KrishiVaani AI — Farm advice in your language">
+  <meta property="og:description" content="Leaf disease check from a photo, voice Q&amp;A in 13 Indian languages, live weather and mandi prices.">
+  <meta property="og:image" content="/images/og.png">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" type="image/svg+xml" href="/images/favicon.svg">
+  <link rel="apple-touch-icon" href="/images/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.webmanifest">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&family=Silkscreen&family=Mukta:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -30,7 +37,11 @@
     <symbol id="i-refresh" viewBox="0 0 12 12" shape-rendering="crispEdges"><path fill="currentColor" d="M4 0h5v1h-5zM2 1h2v1h-2zM9 1h1v1h-1zM1 2h1v1h-1zM7 2h4v1h-4zM1 3h1v1h-1zM9 3h2v1h-2zM0 4h1v1h-1zM10 4h1v1h-1zM0 5h1v1h-1zM11 6h1v1h-1zM1 7h1v1h-1zM11 7h1v1h-1zM1 8h2v1h-2zM10 8h1v1h-1zM1 9h4v1h-4zM10 9h1v1h-1zM2 10h1v1h-1zM8 10h2v1h-2zM3 11h5v1h-5z"/></symbol>
     <symbol id="i-check" viewBox="0 0 12 12" shape-rendering="crispEdges"><path fill="currentColor" d="M10 2h2v1h-2zM9 3h2v1h-2zM8 4h2v1h-2zM1 5h2v1h-2zM7 5h2v1h-2zM2 6h2v1h-2zM6 6h2v1h-2zM3 7h4v1h-4zM4 8h2v1h-2z"/></symbol>
     <symbol id="i-alert" viewBox="0 0 12 12" shape-rendering="crispEdges"><path fill="currentColor" d="M5 0h2v1h-2zM5 1h2v1h-2zM4 2h4v1h-4zM4 3h1v1h-1zM7 3h1v1h-1zM3 4h2v1h-2zM7 4h2v1h-2zM3 5h1v1h-1zM8 5h1v1h-1zM2 6h2v1h-2zM5 6h2v1h-2zM8 6h2v1h-2zM2 7h1v1h-1zM5 7h2v1h-2zM9 7h1v1h-1zM1 8h2v1h-2zM9 8h2v1h-2zM1 9h1v1h-1zM5 9h2v1h-2zM10 9h1v1h-1zM0 10h12v1h-12z"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 12 12" shape-rendering="crispEdges"><path fill="currentColor" d="M1 1h6v1h-6zM1 2h1v1h-1zM6 2h1v1h-1zM1 3h1v1h-1zM4 3h6v1h-6zM1 4h1v1h-1zM4 4h1v1h-1zM9 4h1v1h-1zM1 5h1v1h-1zM4 5h1v1h-1zM9 5h1v1h-1zM1 6h4v1h-4zM9 6h1v1h-1zM4 7h1v1h-1zM9 7h1v1h-1zM4 8h1v1h-1zM9 8h1v1h-1zM4 9h6v1h-6z"/></symbol>
   </svg>
+
+  <a class="skip" href="#main" data-i18n="skipLink">Skip to content</a>
+  <div class="offline" id="offlineBar" role="status" hidden><span data-i18n="offline">You're offline. Saved pages still work; answers need a connection.</span></div>
 
   <header class="topbar">
     <div class="topbar__inner">
@@ -63,6 +74,9 @@
           <option value="as">অসমীয়া</option>
         </select>
       </label>
+      <button class="btn btn--sun btn--sm install" id="installBtn" hidden>
+        <svg aria-hidden="true"><use href="#i-leaf"/></svg><span data-i18n="installBtn">Install app</span>
+      </button>
     </div>
   </header>
 
@@ -87,7 +101,7 @@
     <div class="stat-tile"><svg aria-hidden="true"><use href="#i-coin"/></svg><div><b>50+</b><span data-i18n="statMandis">Mandis</span></div></div>
   </section>
 
-  <main class="layout">
+  <main class="layout" id="main" tabindex="-1">
     <div class="col">
       <!-- Leaf check -->
       <section class="card" id="diagnose" aria-labelledby="diagnose-title">
